@@ -61,3 +61,32 @@ def test_a_hostile_filename_is_never_interpreted_by_a_shell(tmp_path: Path, clip
     hostile.write_bytes(clip_with_audio.read_bytes())
     assert probe(hostile).width == 320
     assert not (tmp_path / "pwned").exists()
+
+
+def test_a_clip_that_cannot_be_decoded_raises_rather_than_returning_no_frames(tmp_path: Path) -> None:
+    from motionmirror.media.ffmpeg import MediaError
+    from motionmirror.media.frames import read_frames
+
+    broken = tmp_path / "broken.mp4"
+    broken.write_bytes(b"not a video at all")
+    with pytest.raises(MediaError, match="decoding failed"):
+        read_frames(broken, 32, 32)
+
+
+def test_stopping_early_does_not_count_as_a_decode_failure(clip_with_audio: Path) -> None:
+    from motionmirror.media.frames import iter_frames
+
+    stream = iter_frames(clip_with_audio, 32, 32)
+    assert next(stream).shape == (32, 32, 3)
+    stream.close()
+
+
+def test_a_failed_encode_raises(tmp_path: Path) -> None:
+    import numpy as np
+
+    from motionmirror.media.ffmpeg import MediaError
+    from motionmirror.media.frames import write_video
+
+    odd = np.zeros((33, 33, 3), dtype=np.uint8)  # H.264 with yuv420p refuses odd sides
+    with pytest.raises(MediaError, match="encoding failed"):
+        write_video([odd], tmp_path / "out.mp4", 10)

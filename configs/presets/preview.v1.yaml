@@ -1,19 +1,19 @@
 # Short preview. Values come from the verified Diffusers API, see docs/MODEL_CAPABILITIES.md.
 # Real quality and memory for these values are pending GPU validation.
 id: preview
-revision: 1
+revision: 2
 display_name: Preview
 preview_seconds: 5
 settings:
   schema_version: 1
   seed: 42
-  height: 832
-  width: 480
+  height: 768
+  width: 432
   num_inference_steps: 20
   guidance_scale: 1.0
   segment_frame_length: 77
   prev_segment_conditioning_frames: 1
   processing_fps: 30
-  mask_expand_pixels: 8
+  mask_expand_pixels: 9
   mask_feather_pixels: 6
   retain_audio: true

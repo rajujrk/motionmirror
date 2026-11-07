@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 from pathlib import Path
+from typing import Any
 
 import pytest
 from PIL import Image
@@ -98,3 +99,43 @@ def test_a_small_close_up_gets_a_warning(tmp_path: Path) -> None:
     Image.new("RGB", (120, 120), (9, 9, 9)).save(small, "JPEG")
     media = validate_image(small, tmp_path / "out.png")
     assert "LOW_RESOLUTION" in media["warnings"]
+
+
+def test_a_continuous_clip_has_no_cuts(clip_with_audio: Path) -> None:
+    media = validate_video(clip_with_audio, max_seconds=30)
+    assert media["cuts"] == []
+    assert "MULTIPLE_SHOTS" not in media["warnings"]
+
+
+def test_a_hard_cut_is_found_with_its_time(tmp_path: Path) -> None:
+    from tests.unit.conftest import run_ffmpeg
+
+    path = tmp_path / "two_shots.mp4"
+    run_ffmpeg(
+        "-f", "lavfi", "-i", "color=c=red:size=320x240:rate=30:duration=1",
+        "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=30:duration=1",
+        "-filter_complex", "[0:v][1:v]concat=n=2:v=1[out]", "-map", "[out]",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", str(path),
+    )  # fmt: skip
+    media = validate_video(path, max_seconds=30)
+    assert media["cuts"] == [pytest.approx(1.0, abs=0.05)]
+    assert "MULTIPLE_SHOTS" in media["warnings"]
+
+
+def test_a_failed_cut_check_rejects_the_clip_instead_of_reporting_no_cuts(
+    clip_with_audio: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import subprocess
+
+    from motionmirror.media import shots
+
+    real_run = subprocess.run
+
+    def fail_cut_detection(command: list[str], **kwargs: Any) -> Any:
+        if any("scene" in part for part in command):
+            return subprocess.CompletedProcess(command, 1, "", "boom")
+        return real_run(command, **kwargs)
+
+    monkeypatch.setattr(shots.subprocess, "run", fail_cut_detection)
+    with pytest.raises(RejectedMedia, match="cuts"):
+        validate_video(clip_with_audio, max_seconds=30)

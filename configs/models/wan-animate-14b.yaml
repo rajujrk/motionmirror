@@ -1,0 +1,45 @@
+# Pinned model artifacts. Hashes come from the hub's own LFS metadata at download time, never written by hand.
+# Licences were read from each model card. See docs/MODEL_SETUP.md.
+schema_version: 1
+artifacts:
+  sam2-small:
+    repo: facebook/sam2.1-hiera-small
+    revision: ee5bba1d82bb8749febdf90f45e84b687142ba03
+    local_dir: sam2.1-hiera-small
+    include: ["*.json", "model.safetensors"]
+    license: Apache-2.0
+  sam2-large:
+    repo: facebook/sam2.1-hiera-large
+    revision: 665f8e2ad61cf5f53d65644ff27c8ee525124610
+    local_dir: sam2.1-hiera-large
+    include: ["*.json", "model.safetensors"]
+    license: Apache-2.0
+  vitpose:
+    repo: Wan-AI/Wan2.2-Animate-14B
+    revision: cb93a225fbaf1ca100f54e79da8f994995b689b3
+    local_dir: wan-process
+    include: ["process_checkpoint/pose2d/vitpose_h_wholebody.onnx/*"]
+    license: Apache-2.0
+  wan-animate-14b:
+    repo: Wan-AI/Wan2.2-Animate-14B-Diffusers
+    revision: 6f4df10861c758af86ac3c979aacc1bf5c03eff0
+    local_dir: wan-animate-14b
+    include: ["*"]
+    license: Apache-2.0
+  wan-animate-14b-without-transformer:
+    repo: Wan-AI/Wan2.2-Animate-14B-Diffusers
+    revision: 6f4df10861c758af86ac3c979aacc1bf5c03eff0
+    local_dir: wan-animate-14b
+    include: ["model_index.json", "scheduler/*", "tokenizer/*", "image_processor/*", "image_encoder/*", "text_encoder/*", "vae/*", "transformer/config.json"]
+    license: Apache-2.0
+  wan-gguf-q2:
+    repo: QuantStack/Wan2.2-Animate-14B-GGUF
+    revision: 33c51bb84d4e70ffc0d088aeb6068d40d9446fa3
+    local_dir: gguf
+    include: ["Wan2.2-Animate-14B-Q2_K.gguf"]
+    license: Apache-2.0, as a conversion of the Wan model
+profiles:
+  preprocess: [sam2-small, vitpose]
+  preprocess-gpu: [sam2-large, vitpose]
+  wan: [wan-animate-14b, sam2-large, vitpose]
+  mac-spike: [wan-animate-14b-without-transformer, wan-gguf-q2]

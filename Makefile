@@ -60,6 +60,10 @@ test-integration: ## Real PostgreSQL, RabbitMQ, Redis and storage through Testco
 test-e2e: ## Browser journey through the running stack. Run make up-mac first
 	pnpm --filter @motionmirror/e2e test
 
+.PHONY: models-download
+models-download: ## Download pinned weights. PROFILE=preprocess|preprocess-gpu|wan|mac-spike. Explicit only
+	cd services/ml-worker && uv run --extra preprocess python -m motionmirror.cli.models --profile $(PROFILE)
+
 .PHONY: test-tools
 test-tools: ## Unit tests for repository tooling
 	uv run --with pytest --no-project pytest tests/tools -q

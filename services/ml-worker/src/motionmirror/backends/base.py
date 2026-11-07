@@ -29,6 +29,18 @@ class ValidationResult:
 
 
 @dataclass(frozen=True)
+class AdapterInput:
+    """A trained adapter this job's preset revision names. The runner has already checked its hash."""
+
+    adapter_id: str
+    name: str
+    path: Path
+    sha256: str
+    scale: float
+    license_scope: str
+
+
+@dataclass(frozen=True)
 class GenerationRequest:
     job_id: str
     kind: str
@@ -37,6 +49,7 @@ class GenerationRequest:
     source_path: Path
     primary_reference_path: Path | None = None
     control_paths: dict[str, Path] = field(default_factory=dict)
+    adapter: AdapterInput | None = None
 
 
 @dataclass(frozen=True)

@@ -155,6 +155,9 @@ def test_capabilities_say_mock_and_cpu() -> None:
 
 
 def test_importing_the_mock_backend_does_not_import_torch() -> None:
-    code = "import sys; import motionmirror.backends.mock, motionmirror.worker.child; print('torch' in sys.modules, 'diffusers' in sys.modules)"
+    code = (
+        "import sys; import motionmirror.backends.mock, motionmirror.worker.child; "
+        "print('torch' in sys.modules, 'diffusers' in sys.modules)"
+    )
     output = subprocess.run([sys.executable, "-c", code], check=True, capture_output=True, text=True).stdout
     assert output.strip() == "False False"

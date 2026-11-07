@@ -9,6 +9,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 from motionmirror.media.ffmpeg import MediaError, file_input, run_ffmpeg
 from motionmirror.media.probe import probe
+from motionmirror.media.shots import detect_cuts
 
 MAX_DIMENSION = 8192
 TRIM_FACTOR = 10
@@ -39,7 +40,16 @@ def validate_video(path: Path, max_seconds: float) -> dict[str, Any]:
         )
     except MediaError as error:
         raise RejectedMedia("This video can't be decoded") from error
+    try:
+        cuts = detect_cuts(path)
+    except MediaError as error:
+        # Unknown isn't the same as none: tracking must never cross a cut no one looked for.
+        raise RejectedMedia("This video couldn't be checked for cuts") from error
+    warnings = ["VARIABLE_FRAME_RATE"] if info.is_vfr else []
+    if cuts:
+        warnings.append("MULTIPLE_SHOTS")
     return {
+        "cuts": cuts,
         "width": info.width,
         "height": info.height,
         "display_width": info.display_width,
@@ -54,7 +64,7 @@ def validate_video(path: Path, max_seconds: float) -> dict[str, Any]:
         "video_codec": info.video_codec,
         "frame_count": info.frame_count,
         "needs_trim": info.duration_seconds > max_seconds,
-        "warnings": ["VARIABLE_FRAME_RATE"] if info.is_vfr else [],
+        "warnings": warnings,
     }
 
 

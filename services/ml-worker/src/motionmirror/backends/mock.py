@@ -93,6 +93,9 @@ class MockReplacementBackend:
     def validate(self, request: GenerationRequest) -> ValidationResult:
         if not request.source_path.exists():
             return ValidationResult(False, "INVALID_REQUEST", "The source video is missing")
+        if request.adapter is not None:
+            # Ignoring it would label a result with an adapter that never ran.
+            return ValidationResult(False, "UNSUPPORTED_CAPABILITY", "The mock backend can't apply a trained adapter")
         return ValidationResult(True)
 
     def prepare(self, request: GenerationRequest) -> PreparedInputs:

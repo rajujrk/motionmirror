@@ -13,20 +13,18 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from motionmirror.backends.base import GenerationRequest, JobContext
+from motionmirror.backends.base import AdapterInput, GenerationRequest, JobContext
 from motionmirror.backends.mock import sha256_file
 from motionmirror.backends.registry import create_backend
 from motionmirror.media.validation import RejectedMedia, validate_image, validate_video
+from motionmirror.worker.failures import AttemptFailure
 
-FAILURE_CODES = {"OutOfMemoryError": "CUDA_OOM"}
-
-
-class AttemptFailure(RuntimeError):
-    def __init__(self, code: str, detail: str, retryable: bool = False) -> None:
-        super().__init__(detail)
-        self.code = code
-        self.detail = detail
-        self.retryable = retryable
+# None of these can succeed on a retry. Matched by name so this module never has to import torch.
+FAILURE_CODES = {
+    "OutOfMemoryError": ("CUDA_OOM", "The model ran out of GPU memory at these settings"),
+    "UnsupportedDeviceError": ("UNSUPPORTED_CAPABILITY", "This worker can't run real generation on its device"),
+    "AdapterLoadError": ("ADAPTER_INCOMPATIBLE", "The trained adapter doesn't match this model"),
+}
 
 
 class PipeContext(JobContext):
@@ -81,6 +79,19 @@ def run_generate(spec: dict[str, Any], context: JobContext) -> dict[str, Any]:
     controls = {
         name.removeprefix("preprocess:"): Path(path) for name, path in paths.items() if name.startswith("preprocess:")
     }
+    named = request_data["inputs"].get("adapter")
+    adapter = (
+        AdapterInput(
+            adapter_id=named["id"],
+            name=named["name"],
+            path=Path(paths["adapter"]),
+            sha256=named["sha256"],
+            scale=float(named["scale"]),
+            license_scope=named["license_scope"],
+        )
+        if named
+        else None
+    )
     request = GenerationRequest(
         job_id=request_data["job_id"],
         kind=request_data["kind"],
@@ -89,6 +100,7 @@ def run_generate(spec: dict[str, Any], context: JobContext) -> dict[str, Any]:
         source_path=Path(paths["source"]),
         primary_reference_path=Path(paths["primary_reference"]) if "primary_reference" in paths else None,
         control_paths=controls,
+        adapter=adapter,
     )
     backend = create_backend(request_data["backend_id"])
     verdict = backend.validate(request)
@@ -117,7 +129,7 @@ def classify(error: BaseException) -> tuple[str, str, bool]:
         return error.code, error.detail, error.retryable
     name = type(error).__name__
     if name in FAILURE_CODES:
-        return FAILURE_CODES[name], "The model ran out of GPU memory at these settings", False
+        return *FAILURE_CODES[name], False
     return "INTERNAL_ERROR", f"{name} while processing", True
 
 

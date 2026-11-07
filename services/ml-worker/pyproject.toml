@@ -15,11 +15,23 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+preprocess = [
+    "huggingface-hub>=0.30,<2",
+    "matplotlib>=3.9,<4",
+    "onnxruntime>=1.20,<2; sys_platform != 'linux' or platform_machine != 'x86_64'",
+    "onnxruntime-gpu>=1.20,<2; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "opencv-python-headless>=4.10,<5",
+    "safetensors>=0.5,<1",
+    "torch>=2.6,<3",
+    "torchvision>=0.21,<1",
+    "transformers>=5,<6",
+]
 wan = [
     "accelerate>=1.2,<2",
     "diffusers==0.42.1",
     "ftfy>=6.3,<7",
     "gguf>=0.10,<1",
+    "opencv-python-headless>=4.10,<5",
     "peft>=0.14,<1",
     "safetensors>=0.5,<1",
     "sentencepiece>=0.2,<1",
@@ -58,6 +70,7 @@ markers = [
 
 [tool.ruff]
 line-length = 120
+extend-exclude = ["src/motionmirror/preprocessing/wan_vendor"]
 target-version = "py312"
 
 [tool.ruff.lint]

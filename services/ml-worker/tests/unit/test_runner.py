@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -66,7 +67,7 @@ class FakeApi:
         return "FAILED"
 
 
-LEASE = Lease("job", "attempt-1", 1, 1, {"kind": "PREVIEW", "backend_id": "mock"})
+LEASE = Lease("job", "attempt-1", 1, 1, {"kind": "PREVIEW", "backend_id": "mock", "inputs": {}})
 
 
 def child(tmp_path: Path, body: str) -> list[str]:
@@ -93,7 +94,8 @@ async def test_a_successful_attempt_uploads_then_completes(tmp_path: Path) -> No
         """
 out = workspace / "result.json"; out.write_text("{}")
 print(json.dumps({"stage": "generate", "current": 1, "total": 2, "unit": "segments"}), flush=True)
-(workspace / "attempt_result.json").write_text(json.dumps({"ok": True, "outputs": [{"name": "result.json", "path": str(out), "content_type": "application/json"}]}))
+output = {"name": "result.json", "path": str(out), "content_type": "application/json"}
+(workspace / "attempt_result.json").write_text(json.dumps({"ok": True, "outputs": [output]}))
 """,
     )
     assert await runner(api, tmp_path, command).run(LEASE) == "SUCCEEDED"
@@ -148,7 +150,8 @@ async def test_a_reported_failure_keeps_its_code(tmp_path: Path) -> None:
     command = child(
         tmp_path,
         """
-(workspace / "attempt_result.json").write_text(json.dumps({"ok": False, "code": "CUDA_OOM", "detail": "out of memory", "retryable": False}))
+failure = {"ok": False, "code": "CUDA_OOM", "detail": "out of memory", "retryable": False}
+(workspace / "attempt_result.json").write_text(json.dumps(failure))
 """,
     )
     await runner(api, tmp_path, command).run(LEASE)
@@ -237,3 +240,61 @@ async def test_a_storage_failure_on_download_is_reported_at_once_as_retryable(tm
     api.download = failing_download  # type: ignore[method-assign]
     assert await runner(api, tmp_path, child(tmp_path, SUCCESS_WITH_OUTPUT)).run(LEASE) == "FAILED"
     assert ("fail", "STORAGE_ERROR", True) in api.calls
+
+
+class AdapterApi(FakeApi):
+    """The stored bytes hash to `stored`, whatever the job's snapshot expects."""
+
+    def __init__(self, stored: bytes) -> None:
+        super().__init__()
+        self.stored = stored
+        self.failures: list[tuple[str, bool]] = []
+
+    async def adapter_access(self, lease: Lease, adapter_id: str) -> dict[str, Any]:
+        self.calls.append(("adapter_access", adapter_id))
+        return {"url": "https://read/adapter", "sha256": "ignored", "scale": 1.0}
+
+    async def download(self, url: str, target: Path) -> None:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(self.stored if url == "https://read/adapter" else b"input")
+
+    async def fail(self, lease: Lease, code: str, detail: str, retryable: bool) -> str:
+        self.failures.append((code, retryable))
+        return "FAILED"
+
+
+def adapter_lease(sha256: str) -> Lease:
+    adapter = {"id": "adapter-1", "name": "a", "sha256": sha256, "scale": 1.0, "license_scope": "research_only"}
+    request = {
+        "job_id": "job",
+        "kind": "PREVIEW",
+        "backend_id": "mock",
+        "settings": {},
+        "inputs": {"adapter": adapter},
+    }
+    return Lease("job", "attempt-1", 1, 1, request)
+
+
+@pytest.mark.asyncio
+async def test_a_tampered_adapter_stops_the_job_before_any_child_starts(tmp_path: Path) -> None:
+    api = AdapterApi(b"tampered")
+    marker = tmp_path / "child_ran"
+    command = child(tmp_path, f"open({str(marker)!r}, 'w').close()")
+    attempt = runner(api, tmp_path, command)
+    assert await attempt.run(adapter_lease(hashlib.sha256(b"genuine").hexdigest())) == "FAILED"
+    assert api.failures == [("ADAPTER_INTEGRITY", False)]
+    assert not marker.exists()
+
+
+@pytest.mark.asyncio
+async def test_a_genuine_adapter_reaches_the_child_as_a_local_file(tmp_path: Path) -> None:
+    api = AdapterApi(b"genuine")
+    seen = tmp_path / "seen.json"
+    body = f"""
+spec = json.loads(open(sys.argv[1]).read())
+open({str(seen)!r}, 'w').write(json.dumps(spec['input_paths']))
+"""
+    attempt = runner(api, tmp_path, child(tmp_path, body))
+    await attempt.run(adapter_lease(hashlib.sha256(b"genuine").hexdigest()))
+    assert json.loads(seen.read_text())["adapter"].endswith("adapter.safetensors")
+    assert ("adapter_access", "adapter-1") in api.calls

@@ -44,6 +44,10 @@ def local_name(read: str) -> str:
     return read.replace(":", "_")
 
 
+class AdapterIntegrityError(RuntimeError):
+    """The adapter's bytes don't match the hash recorded when it was registered."""
+
+
 class AttemptRunner:
     def __init__(
         self,
@@ -76,6 +80,8 @@ class AttemptRunner:
             input_paths = await self._fetch_inputs(lease, workspace)
         except httpx.HTTPError as error:
             return await self._storage_failure(lease, "fetching inputs", error)
+        except AdapterIntegrityError as error:
+            return await self._api.fail(lease, "ADAPTER_INTEGRITY", str(error), False)
         spec_path = workspace / "spec.json"
         attempt_dir = workspace / "attempt"
         spec_path.write_text(
@@ -109,7 +115,19 @@ class AttemptRunner:
             target = workspace / "inputs" / local_name(name)
             await self._api.download(url, target)
             paths[name] = str(target)
+        adapter = lease.request["inputs"].get("adapter")
+        if adapter:
+            paths["adapter"] = str(await self._fetch_adapter(lease, adapter, workspace))
         return paths
+
+    async def _fetch_adapter(self, lease: Lease, adapter: dict[str, Any], workspace: Path) -> Path:
+        """Checked before the child starts, so tampered weights never get near a model load."""
+        access = await self._api.adapter_access(lease, adapter["id"])
+        target = workspace / "inputs" / "adapter.safetensors"
+        await self._api.download(access["url"], target)
+        if sha256_file(target) != adapter["sha256"]:
+            raise AdapterIntegrityError("The trained adapter doesn't match its recorded hash")
+        return target
 
     async def _report(
         self, lease: Lease, stage: str, current: int | None = None, total: int | None = None, unit: str | None = None

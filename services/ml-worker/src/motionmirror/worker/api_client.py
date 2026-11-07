@@ -144,6 +144,13 @@ class ApiClient:
     async def artifact_access(self, lease: Lease, reads: list[str], writes: list[str]) -> dict[str, Any]:
         return dict((await self._fenced(lease, "artifact-access", {"reads": reads, "writes": writes})).json())
 
+    async def adapter_access(self, lease: Lease, adapter_id: str) -> dict[str, Any]:
+        response = await self._post(f"/internal/v1/adapters/{adapter_id}/artifact-access", lease.fence())
+        if response.status_code == 409:
+            raise LeaseLost("adapter-access")
+        response.raise_for_status()
+        return dict(response.json())
+
     async def download(self, url: str, target: Path) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
         async with self._storage.stream("GET", url) as response:
