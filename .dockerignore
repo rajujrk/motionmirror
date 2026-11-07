@@ -1,8 +1,9 @@
 .git
 .github
-.claude
-.claude-flow
-.remember
+# Plugins write these into whichever directory they run in, command history included.
+**/.claude
+**/.claude-flow
+**/.remember
 .data
 .models
 .scratch

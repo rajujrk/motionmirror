@@ -162,3 +162,13 @@ def test_the_validation_broker_account_can_only_touch_its_own_queue() -> None:
     assert not re.fullmatch(account["read"], "motionmirror.generate.wan-animate.v1")
     queues = {queue["name"] for queue in definitions["queues"]}
     assert {"motionmirror.validate.v1", "motionmirror.dead.validate.v1"} <= queues
+
+
+def test_tool_state_stays_out_of_images_at_any_depth() -> None:
+    """Editor and agent plugins write folders, including command history, into whichever directory they run in.
+
+    In .dockerignore a bare name only matches at the top of the build context, so each needs the **/ form.
+    """
+    patterns = (ROOT / ".dockerignore").read_text().split()
+    for folder in (".claude-flow", ".claude", ".remember"):
+        assert f"**/{folder}" in patterns, folder
