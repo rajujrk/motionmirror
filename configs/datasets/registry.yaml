@@ -1,0 +1,85 @@
+# Dataset registry. Record only what a primary source or the downloaded files show.
+# commercial_use_ok defaults to false. Removing an entry invalidates adapters trained on it until reviewed.
+schema_version: 1
+datasets:
+  - id: tiktok-dance
+    name: TikTok Dance Dataset (Jafarian and Park, CVPR 2021)
+    version: kaggle-2021-09-22
+    use: Single-person dance videos, the closest match to the product's input
+    primary_url: https://www.kaggle.com/datasets/yasaminjafarian/tiktokdataset
+    fallback_url: null
+    access: kaggle
+    source_ref: yasaminjafarian/tiktokdataset
+    license_name: CC BY-NC 4.0
+    license_url: https://creativecommons.org/licenses/by-nc/4.0/
+    license_notes: >-
+      Kaggle's API reports CC BY-NC 4.0. A mirror of the project page asks for research use only. The stricter statement applies.
+      Clips show real people who have not individually consented to this use.
+    commercial_use_ok: false
+    attribution: Cite Jafarian and Park, CVPR 2021
+    consent_notes: Real people's likeness. Research adapters only, never promoted to production.
+    size_bytes: 53288866606
+    checksum_manifest: .data/datasets/tiktok-dance/MANIFEST.json
+    retrieval_date: null
+    review:
+      status: approved
+      scope: research_only
+      reviewer: Product owner
+      review_date: "2026-11-06"
+      decision: Keep the brief's rule. Train only clearly labelled research adapters on this data.
+
+  - id: ubc-fashion
+    name: UBC Fashion Video Dataset (Zablotskaia et al., BMVC 2019)
+    version: null
+    use: Full-outfit appearance and clothing transfer
+    primary_url: https://vision.cs.ubc.ca/datasets/fashion
+    fallback_url: null
+    access: blocked
+    source_ref: null
+    license_name: unstated
+    license_url: null
+    license_notes: The official page states no licence. Videos are hosted on third-party URLs.
+    commercial_use_ok: false
+    attribution: Cite Zablotskaia et al., BMVC 2019
+    consent_notes: Real people's likeness.
+    size_bytes: null
+    checksum_manifest: null
+    retrieval_date: null
+    review:
+      status: blocked
+      scope: none
+      reviewer: null
+      review_date: null
+      decision: Blocked until a human reviews the licence.
+
+  - id: humanvid-pexels
+    name: HumanVid, Pexels part (Wang et al., 2024)
+    version: null
+    use: Larger-scale human video with camera-motion variety
+    primary_url: https://humanvid.github.io/
+    fallback_url: https://huggingface.co/datasets/zhenzhiwang/HumanVid-Pexels
+    access: blocked
+    source_ref: null
+    license_name: unverified
+    license_url: null
+    license_notes: The Hugging Face terms are gated and unread. Videos must be self-fetched under Pexels' terms.
+    commercial_use_ok: false
+    attribution: Cite Wang et al., 2024
+    consent_notes: Real people's likeness.
+    size_bytes: null
+    checksum_manifest: null
+    retrieval_date: null
+    review:
+      status: blocked
+      scope: none
+      reviewer: null
+      review_date: null
+      decision: Blocked until a human reads and records the terms.
+
+rejected:
+  - id: Tinghong-Ye66/dance_1723_video_10s
+    reason: No licence or source in its Hugging Face metadata.
+  - id: wendell0218/dance_2858_video
+    reason: No licence or source in its Hugging Face metadata.
+  - id: Biubiu95/dance-videos
+    reason: No licence or source in its Hugging Face metadata.

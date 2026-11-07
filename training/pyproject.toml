@@ -1,0 +1,40 @@
+[project]
+name = "motionmirror-training"
+version = "0.1.0"
+description = "MotionMirror training track: dataset tools, sample building, adapter training and evaluation."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "httpx>=0.28,<1",
+    "motionmirror[wan]",
+    "pydantic>=2.9,<3",
+    "pyyaml>=6,<7",
+    "safetensors>=0.5,<1",
+]
+
+[project.scripts]
+mm-train = "motionmirror_training.cli:main"
+
+[tool.uv.sources]
+motionmirror = { path = "../services/ml-worker", editable = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3,<10",
+    "ruff>=0.9,<1",
+]
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/motionmirror_training"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = ["requires_mps: needs an Apple Silicon GPU"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
