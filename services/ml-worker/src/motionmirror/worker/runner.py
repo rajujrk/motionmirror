@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import shutil
 import sys
 import time
@@ -18,6 +19,8 @@ from motionmirror.media.probe import probe
 from motionmirror.worker.api_client import ApiClient, ApiUnavailable, Lease, LeaseLost
 
 log = logging.getLogger(__name__)
+
+ADAPTER_CACHE_SIZE = 3
 
 READS_BY_KIND: dict[str, list[str]] = {
     "VALIDATE": ["asset"],
@@ -46,6 +49,22 @@ def local_name(read: str) -> str:
 
 class AdapterIntegrityError(RuntimeError):
     """The adapter's bytes don't match the hash recorded when it was registered."""
+
+
+def adapter_cache_dir(scratch_dir: Path) -> Path:
+    return scratch_dir / "adapter-cache"
+
+
+def cached_adapters(scratch_dir: Path) -> list[str]:
+    """What this worker holds, by hash. Registration reports it so an operator can see a rollout converge."""
+    return sorted(path.stem for path in adapter_cache_dir(scratch_dir).glob("*.safetensors"))
+
+
+def _trim_adapter_cache(cache: Path) -> None:
+    """Oldest use goes first. Evaluating several adapters mustn't slowly fill a rented disk."""
+    held = sorted(cache.glob("*.safetensors"), key=lambda path: path.stat().st_mtime, reverse=True)
+    for path in held[ADAPTER_CACHE_SIZE:]:
+        path.unlink(missing_ok=True)
 
 
 class AttemptRunner:
@@ -121,13 +140,21 @@ class AttemptRunner:
         return paths
 
     async def _fetch_adapter(self, lease: Lease, adapter: dict[str, Any], workspace: Path) -> Path:
-        """Checked before the child starts, so tampered weights never get near a model load."""
+        """Checked on every use, even from the cache, so tampered weights never get near a model load."""
+        cache = adapter_cache_dir(self._scratch_dir)
+        cached = cache / f"{adapter['sha256']}.safetensors"
+        if cached.exists() and sha256_file(cached) == adapter["sha256"]:
+            os.utime(cached)
+            return cached
         access = await self._api.adapter_access(lease, adapter["id"])
         target = workspace / "inputs" / "adapter.safetensors"
         await self._api.download(access["url"], target)
         if sha256_file(target) != adapter["sha256"]:
             raise AdapterIntegrityError("The trained adapter doesn't match its recorded hash")
-        return target
+        cache.mkdir(parents=True, exist_ok=True)
+        os.replace(target, cached)
+        _trim_adapter_cache(cache)
+        return cached
 
     async def _report(
         self, lease: Lease, stage: str, current: int | None = None, total: int | None = None, unit: str | None = None

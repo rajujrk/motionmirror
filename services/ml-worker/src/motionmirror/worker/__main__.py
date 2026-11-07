@@ -8,16 +8,16 @@ import platform
 
 from motionmirror.worker.api_client import ApiClient
 from motionmirror.worker.consumer import TaskHandler, consume
-from motionmirror.worker.runner import AttemptRunner
+from motionmirror.worker.runner import AttemptRunner, cached_adapters
 from motionmirror.worker.settings import WorkerSettings
 
 REGISTER_EVERY_SECONDS = 60
 
 
-async def keep_registered(api: ApiClient, body: dict[str, object]) -> None:
+async def keep_registered(api: ApiClient, settings: WorkerSettings) -> None:
     while True:
         try:
-            await api.register(body)
+            await api.register(describe(settings))
         except Exception as error:
             logging.getLogger(__name__).warning("worker registration failed: %s", type(error).__name__)
         await asyncio.sleep(REGISTER_EVERY_SECONDS)
@@ -41,7 +41,7 @@ def describe(settings: WorkerSettings) -> dict[str, object]:
         "backends": backends.get(settings.backend, [settings.backend]),
         "device_type": settings.device_profile,
         "capabilities": {"output_label": output_label(settings.backend, settings.device_profile)},
-        "adapters": [],
+        "adapters": cached_adapters(settings.scratch_dir),
         "runtime": {"python": platform.python_version(), "machine": platform.machine()},
     }
 
@@ -64,7 +64,7 @@ async def main() -> None:
         settings.terminate_grace_seconds,
     )
     handler = TaskHandler(api, runner, settings.worker_id, settings.max_generations)
-    registration = asyncio.create_task(keep_registered(api, describe(settings)))
+    registration = asyncio.create_task(keep_registered(api, settings))
     try:
         await consume(settings, handler)
     finally:

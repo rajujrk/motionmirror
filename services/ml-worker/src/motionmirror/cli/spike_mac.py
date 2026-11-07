@@ -119,29 +119,40 @@ def seed_point(mask: np.ndarray) -> tuple[float, float]:
     return float(x), float(y)
 
 
-def run_tracking(clip_dir: Path, device: str, frames_limit: int, width: int, height: int) -> dict[str, Any]:
-    from motionmirror.media.frames import read_frames
+def run_tracking(
+    clip_dir: Path, device: str, frames_limit: int, width: int, height: int, chunk: int | None = None
+) -> dict[str, Any]:
+    """Only the frames under test are ever decoded, so reading a long clip can't inflate the peak being measured."""
+    from motionmirror.media.frames import FrameSource
     from motionmirror.preprocessing.mapping import FramePrompt
     from motionmirror.preprocessing.models import Sam2Tracker, model_cache
+    from motionmirror.preprocessing.pipeline import track_in_chunks
 
-    frames = read_frames(clip_dir / "video.mp4", width, height)[:frames_limit]
-    truth = [frame[:, :, 0] > 127 for frame in read_frames(clip_dir / "dataset_mask.mp4", width, height)[:frames_limit]]
+    source = FrameSource(clip_dir / "video.mp4", width, height)
+    masks_source = FrameSource(clip_dir / "dataset_mask.mp4", width, height)
+    truth = [frame[:, :, 0] > 127 for frame in masks_source.slice(0, frames_limit)]
     x, y = seed_point(truth[0])
     tracker = Sam2Tracker(model_cache() / "sam2.1-hiera-small", device, "sam2.1-hiera-small")
+    prompt = FramePrompt(0, [(x, y)], [1])
     started = time.monotonic()
-    masks = tracker.track(frames, [FramePrompt(0, [(x, y)], [1])])
+    if chunk:
+        masks = track_in_chunks(tracker, source, len(truth), [prompt], chunk)
+    else:
+        masks = tracker.track(source.slice(0, frames_limit), [prompt])
     elapsed = time.monotonic() - started
     # Proof of where the work ran. Without PYTORCH_ENABLE_MPS_FALLBACK an unsupported op raises instead of moving.
     placement = {"model_device": str(next(tracker.model.parameters()).device), "mps_driver_gb": mps_driver_gb(device)}
     scores = [iou(mask.astype(bool), expected) for mask, expected in zip(masks, truth, strict=True)]
     return {
-        "frames": len(frames),
+        "frames": len(truth),
+        "chunk_frames": chunk,
         "size": f"{width}x{height}",
         **placement,
         "track_seconds": round(elapsed, 1),
-        "seconds_per_frame": round(elapsed / len(frames), 3),
+        "seconds_per_frame": round(elapsed / len(truth), 3),
         "mean_iou_vs_dataset_mask": round(float(np.mean(scores)), 3),
         "min_iou_vs_dataset_mask": round(float(np.min(scores)), 3),
+        "iou_last_quarter": round(float(np.mean(scores[-len(scores) // 4 :])), 3),
         "peak_rss_gb": peak_rss_gb(),
     }
 
@@ -149,15 +160,15 @@ def run_tracking(clip_dir: Path, device: str, frames_limit: int, width: int, hei
 def run_pose(clip_dir: Path, provider: str, frames_limit: int, width: int, height: int) -> dict[str, Any]:
     import onnxruntime
 
-    from motionmirror.media.frames import read_frames
+    from motionmirror.media.frames import FrameSource
     from motionmirror.preprocessing.masks import bbox_from_mask
     from motionmirror.preprocessing.models import model_cache
     from motionmirror.preprocessing.wan_vendor.pose2d import ViTPose
 
-    frames = read_frames(clip_dir / "video.mp4", width, height)[:frames_limit]
+    frames = FrameSource(clip_dir / "video.mp4", width, height).slice(0, frames_limit)
     truth = [
         (frame[:, :, 0] > 127).astype(np.uint8)
-        for frame in read_frames(clip_dir / "dataset_mask.mp4", width, height)[:frames_limit]
+        for frame in FrameSource(clip_dir / "dataset_mask.mp4", width, height).slice(0, frames_limit)
     ]
     checkpoint = model_cache() / "wan-process/process_checkpoint/pose2d/vitpose_h_wholebody.onnx"
     model = ViTPose(str(checkpoint), device="cpu")
@@ -266,9 +277,9 @@ def run_stage(stage: str, args: argparse.Namespace, results: dict[str, Any]) -> 
     if stage == "dtypes":
         probe_dtypes(results)
     elif stage == "sam2-cpu":
-        _attempt(results, "sam2_cpu", lambda: run_tracking(args.clip_dir, "cpu", frames, width, height))
+        _attempt(results, "sam2_cpu", lambda: run_tracking(args.clip_dir, "cpu", frames, width, height, args.chunk))
     elif stage == "sam2-mps":
-        _attempt(results, "sam2_mps", lambda: run_tracking(args.clip_dir, "mps", frames, width, height))
+        _attempt(results, "sam2_mps", lambda: run_tracking(args.clip_dir, "mps", frames, width, height, args.chunk))
     elif stage == "pose-cpu":
         _attempt(results, "pose_cpu", lambda: run_pose(args.clip_dir, "CPUExecutionProvider", frames, width, height))
     elif stage == "pose-coreml":
@@ -288,6 +299,7 @@ def main() -> int:
     parser.add_argument("--clip-dir", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--frames", type=int, default=60)
+    parser.add_argument("--chunk", type=int, help="track in chunks of this many frames")
     parser.add_argument("--only", default="dtypes,sam2-cpu,sam2-mps,pose-cpu,pose-coreml")
     parser.add_argument("--gguf-seconds", type=int, default=7200)
     args = parser.parse_args()
@@ -318,7 +330,8 @@ def main() -> int:
         "mps_fallback_env": os.environ.get("PYTORCH_ENABLE_MPS_FALLBACK"),
     }
     run_stage(stages[0], args, results)
-    path = args.out / f"spike_{stages[0]}_{args.frames}f.json"
+    suffix = f"_chunk{args.chunk}" if args.chunk else ""
+    path = args.out / f"spike_{stages[0]}_{args.frames}f{suffix}.json"
     path.write_text(json.dumps(results, indent=2))
     print(f"wrote {path}")
     return 0

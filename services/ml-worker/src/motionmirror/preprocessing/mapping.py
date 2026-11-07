@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 from fractions import Fraction
 from typing import Any
 
+import numpy as np
+
 
 class SelectionOutsideClip(ValueError):
     """Every mark is outside the trimmed range, so there's nothing to start tracking from."""
@@ -17,6 +19,7 @@ class FramePrompt:
     points: list[tuple[float, float]] = field(default_factory=list)
     labels: list[int] = field(default_factory=list)
     box: tuple[float, float, float, float] | None = None
+    mask: np.ndarray | None = None
 
 
 def to_model_point(x: float, y: float, source: tuple[int, int], model: tuple[int, int]) -> tuple[float, float]:

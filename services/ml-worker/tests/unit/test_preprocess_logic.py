@@ -57,9 +57,9 @@ class FakePose:
     def __init__(self) -> None:
         self.boxes: list[Any] = []
 
-    def estimate(self, frames: list[np.ndarray], boxes: list[Any]) -> list[Any]:
-        self.boxes = boxes
-        return [None if box is None else {"box": box} for box in boxes]
+    def estimate(self, frame: np.ndarray, box: tuple[int, int, int, int]) -> dict[str, Any]:
+        self.boxes.append(box)
+        return {"box": box}
 
     def face_crop(self, frame: np.ndarray, meta: dict[str, Any]) -> np.ndarray:
         return np.full((512, 512, 3), 90, dtype=np.uint8)
@@ -197,7 +197,7 @@ def test_pose_gets_boxes_from_the_mask_and_none_for_hidden_frames(clip_with_audi
     pose = FakePose()
     result = run_preprocess(clip_with_audio, INPUTS, SETTINGS, JobContext(tmp_path), FakeTracker(masks), pose)
     assert pose.boxes[0] == (40, 50, 60, 70)
-    assert pose.boxes[3] is None, "the pose model must not choose a person itself when the dancer is hidden"
+    assert len(pose.boxes) == 19, "the pose model must not choose a person itself when the dancer is hidden"
     assert result["effective_settings"]["track"]["lost_frames"] == [3]
 
 

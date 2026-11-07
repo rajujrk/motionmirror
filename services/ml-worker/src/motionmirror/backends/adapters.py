@@ -11,6 +11,8 @@ from typing import Any
 
 from torch import Tensor
 
+_EXPANDED_LAYERS = (".attn2.add_k_proj", ".attn2.add_v_proj")
+
 
 class AdapterLoadError(RuntimeError):
     """The adapter file does not fully match the loaded model."""
@@ -38,8 +40,18 @@ def _count_layers(state_dict: dict[str, Tensor]) -> int:
     return sum(1 for key in state_dict if ".lora_A." in key)
 
 
-def _count_attached(transformer: Any, adapter_name: str) -> int:
-    return sum(1 for _, module in transformer.named_modules() if adapter_name in getattr(module, "lora_A", {}))
+def _attached_layers(transformer: Any, adapter_name: str) -> list[str]:
+    return [name for name, module in transformer.named_modules() if adapter_name in getattr(module, "lora_A", {})]
+
+
+def _layers_from_file(attached: list[str], state_dict: dict[str, Tensor]) -> list[str]:
+    """Diffusers gives an adapter with no image-attention layers zero-weight ones, so they change nothing.
+
+    They attach on the real model, whose config has these layers, so counting them would refuse every real adapter.
+    """
+    if any(".k_img." in key or ".v_img." in key for key in state_dict):
+        return attached
+    return [name for name in attached if not name.endswith(_EXPANDED_LAYERS)]
 
 
 def load_adapter(pipe: Any, state_dict: dict[str, Tensor], adapter_name: str, scale: float) -> LoadedAdapter:
@@ -52,11 +64,12 @@ def load_adapter(pipe: Any, state_dict: dict[str, Tensor], adapter_name: str, sc
     except (KeyError, ValueError, IndexError) as error:
         raise AdapterLoadError(f"adapter does not match the model: {error}") from error
 
-    attached = _count_attached(pipe.transformer, adapter_name)
-    if attached != expected:
+    attached = _attached_layers(pipe.transformer, adapter_name)
+    from_file = _layers_from_file(attached, state_dict)
+    if len(from_file) != expected:
         if attached:
             pipe.delete_adapters(adapter_name)
-        raise AdapterLoadError(f"attached {attached} of {expected} adapter layers")
+        raise AdapterLoadError(f"attached {len(from_file)} of {expected} adapter layers")
 
     pipe.set_adapters([adapter_name], [scale])
-    return LoadedAdapter(adapter_name=adapter_name, layer_count=attached, scale=scale)
+    return LoadedAdapter(adapter_name=adapter_name, layer_count=len(from_file), scale=scale)

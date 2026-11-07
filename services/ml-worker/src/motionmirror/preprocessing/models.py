@@ -62,8 +62,10 @@ class Sam2Tracker:
                 arguments["input_labels"] = [[list(prompt.labels)]]
             if prompt.box is not None:
                 arguments["input_boxes"] = [[list(prompt.box)]]
+            if prompt.mask is not None:
+                arguments["input_masks"] = prompt.mask.astype(bool)
             self.processor.add_inputs_to_inference_session(
-                inference_session=session, frame_idx=prompt.frame, obj_ids=object_id, **arguments
+                inference_session=session, frame_idx=prompt.frame, obj_ids=[object_id], **arguments
             )
         masks: dict[int, np.ndarray] = {}
         first = prompts[0].frame
@@ -90,19 +92,13 @@ class VitPoseEstimator:
         self.model = ViTPose(str(checkpoint), device=device if device == "cuda" else "cpu")
         require_gpu_session(self.model.session, device)
 
-    def estimate(self, frames: list[np.ndarray], boxes: list[tuple[int, int, int, int] | None]) -> list[dict[str, Any]]:
+    def estimate(self, frame: np.ndarray, box: tuple[int, int, int, int]) -> dict[str, Any]:
         from motionmirror.preprocessing.wan_vendor.pose2d_utils import load_pose_metas_from_kp2ds_seq
 
-        height, width = frames[0].shape[:2]
-        metas: list[dict[str, Any] | None] = []
-        for frame, box in zip(frames, boxes, strict=True):
-            if box is None:
-                metas.append(None)  # Hidden dancer: never let the pose model pick someone else.
-                continue
-            image, center, scale = self.model.preprocess(frame, np.array([*box, 1.0], dtype=np.float32))
-            keypoints = self.model(image[None], center[None], scale[None])
-            metas.append(load_pose_metas_from_kp2ds_seq(keypoints, width=width, height=height)[0])
-        return metas  # type: ignore[return-value]
+        height, width = frame.shape[:2]
+        image, center, scale = self.model.preprocess(frame, np.array([*box, 1.0], dtype=np.float32))
+        keypoints = self.model(image[None], center[None], scale[None])
+        return dict(load_pose_metas_from_kp2ds_seq(keypoints, width=width, height=height)[0])
 
     def face_crop(self, frame: np.ndarray, meta: dict[str, Any]) -> np.ndarray | None:
         height, width = frame.shape[:2]

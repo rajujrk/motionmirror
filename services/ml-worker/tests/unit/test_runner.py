@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ import pytest
 
 from motionmirror.worker.api_client import Lease, LeaseLost
 from motionmirror.worker.runner import AttemptRunner
+from motionmirror.worker.settings import WorkerSettings
 
 
 class FakeApi:
@@ -296,5 +298,63 @@ open({str(seen)!r}, 'w').write(json.dumps(spec['input_paths']))
 """
     attempt = runner(api, tmp_path, child(tmp_path, body))
     await attempt.run(adapter_lease(hashlib.sha256(b"genuine").hexdigest()))
-    assert json.loads(seen.read_text())["adapter"].endswith("adapter.safetensors")
+    assert Path(json.loads(seen.read_text())["adapter"]).read_bytes() == b"genuine"
     assert ("adapter_access", "adapter-1") in api.calls
+
+
+@pytest.mark.asyncio
+async def test_a_cached_adapter_isnt_downloaded_again_and_a_tampered_one_is(tmp_path: Path) -> None:
+    from motionmirror.worker.runner import adapter_cache_dir, cached_adapters
+
+    digest = hashlib.sha256(b"genuine").hexdigest()
+    api = AdapterApi(b"genuine")
+    command = child(tmp_path, "")
+    await runner(api, tmp_path, command).run(adapter_lease(digest))
+    assert api.calls.count(("adapter_access", "adapter-1")) == 1
+    assert cached_adapters(tmp_path / "scratch") == [digest]
+
+    await runner(api, tmp_path, command).run(adapter_lease(digest))
+    assert api.calls.count(("adapter_access", "adapter-1")) == 1, "served from the cache"
+
+    (adapter_cache_dir(tmp_path / "scratch") / f"{digest}.safetensors").write_bytes(b"tampered on disk")
+    await runner(api, tmp_path, command).run(adapter_lease(digest))
+    assert api.calls.count(("adapter_access", "adapter-1")) == 2, "the hash is checked on every use"
+    assert (adapter_cache_dir(tmp_path / "scratch") / f"{digest}.safetensors").read_bytes() == b"genuine"
+
+
+@pytest.mark.asyncio
+async def test_the_adapter_cache_keeps_only_recent_adapters(tmp_path: Path) -> None:
+    from motionmirror.worker.runner import ADAPTER_CACHE_SIZE, cached_adapters
+
+    command = child(tmp_path, "")
+    digests = []
+    for index in range(ADAPTER_CACHE_SIZE + 2):
+        content = f"adapter-{index}".encode()
+        digests.append(hashlib.sha256(content).hexdigest())
+        await runner(AdapterApi(content), tmp_path, command).run(adapter_lease(digests[-1]))
+        time.sleep(0.01)
+    held = cached_adapters(tmp_path / "scratch")
+    assert len(held) == ADAPTER_CACHE_SIZE
+    assert digests[-1] in held
+    assert digests[0] not in held
+
+
+def test_a_worker_advertises_the_adapters_it_holds(tmp_path: Path) -> None:
+    from motionmirror.worker.__main__ import describe
+    from motionmirror.worker.runner import adapter_cache_dir
+
+    adapter_cache_dir(tmp_path).mkdir(parents=True)
+    (adapter_cache_dir(tmp_path) / "abc.safetensors").write_bytes(b"x")
+    settings = WorkerSettings(
+        worker_id="w",
+        backend="wan-animate",
+        device_profile="cuda",
+        api_base_url="http://api",
+        oidc_token_url="http://id",
+        oidc_client_id="c",
+        oidc_client_secret="s",
+        amqp_url="amqp://x",
+        queues="q",
+        scratch_dir=tmp_path,
+    )
+    assert describe(settings)["adapters"] == ["abc"]

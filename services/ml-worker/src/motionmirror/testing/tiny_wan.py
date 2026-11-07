@@ -46,6 +46,8 @@ def build_tiny_transformer() -> WanAnimateTransformer3DModel:
         cross_attn_norm=True,
         qk_norm="rms_norm_across_heads",
         image_dim=4,
+        # The real config sets this, and it adds the image cross-attention layers. Without it tests skip that path.
+        added_kv_proj_dim=24,
         rope_max_seq_len=32,
         motion_encoder_channel_sizes={"4": 16, "8": 16, "16": 16},
         motion_encoder_size=TINY_FACE_SIZE,

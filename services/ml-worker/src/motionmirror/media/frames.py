@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 import itertools
 import subprocess
 import tempfile
 from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import IO
 
@@ -84,40 +86,97 @@ def read_frames(path: Path, width: int, height: int, **kwargs: object) -> list[n
     return list(iter_frames(path, width, height, **kwargs))  # type: ignore[arg-type]
 
 
-def write_video(frames: Iterable[np.ndarray], path: Path, fps: int, crf: int = 16) -> int:
-    """Encode RGB frames to a broadly playable H.264 MP4. Returns the frame count."""
-    iterator = iter(frames)
-    first = next(iterator, None)
-    if first is None:
-        raise MediaError("no frames to encode")
-    height, width = first.shape[:2]
-    command = [
-        "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-        "-protocol_whitelist", "file,pipe",
-        "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{width}x{height}", "-r", str(fps), "-i", "pipe:0",
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", str(crf), "-pix_fmt", "yuv420p",
-        "-movflags", "+faststart", str(path),
-    ]  # fmt: skip
-    with tempfile.TemporaryFile() as errors:
-        process = subprocess.Popen(command, stdin=subprocess.PIPE, stderr=errors)
-        assert process.stdin is not None
-        count = 0
-        broken = False
+@dataclass(frozen=True)
+class FrameSource:
+    """A clip's frames, decoded again whenever they're needed. Decoding is cheap next to anything done with them."""
+
+    path: Path
+    width: int
+    height: int
+    fps: int | None = None
+    start: float | None = None
+    duration: float | None = None
+
+    def __iter__(self) -> Iterator[np.ndarray]:
+        return iter_frames(self.path, self.width, self.height, self.fps, self.start, self.duration)
+
+    def count(self) -> int:
+        return sum(1 for _ in self)
+
+    def slice(self, begin: int, end: int) -> list[np.ndarray]:
+        with contextlib.closing(iter(self)) as frames:  # type: ignore[type-var]
+            return list(itertools.islice(frames, begin, end))
+
+
+class VideoWriter:
+    """Encodes RGB frames to a broadly playable H.264 MP4 as they arrive, so several outputs can share one pass."""
+
+    def __init__(self, path: Path, fps: int, crf: int = 16) -> None:
+        self.path = path
+        self.fps = fps
+        self.crf = crf
+        self.count = 0
+        self._process: subprocess.Popen[bytes] | None = None
+        self._errors: IO[bytes] | None = None
+        self._broken = False
+
+    def _start(self, frame: np.ndarray) -> subprocess.Popen[bytes]:
+        height, width = frame.shape[:2]
+        command = [
+            "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+            "-protocol_whitelist", "file,pipe",
+            "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{width}x{height}", "-r", str(self.fps), "-i", "pipe:0",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", str(self.crf), "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart", str(self.path),
+        ]  # fmt: skip
+        self._errors = tempfile.TemporaryFile()  # noqa: SIM115 - must outlive this call, close() and abort() close it
+        return subprocess.Popen(command, stdin=subprocess.PIPE, stderr=self._errors)
+
+    def write(self, frame: np.ndarray) -> None:
+        if self._process is None:
+            self._process = self._start(frame)
+        assert self._process.stdin is not None
         try:
-            for frame in itertools.chain([first], iterator):
-                process.stdin.write(frame.tobytes())
-                count += 1
+            self._process.stdin.write(frame.tobytes())
+            self.count += 1
         except BrokenPipeError:
-            broken = True
-        finally:
-            try:
-                process.stdin.close()
-            except BrokenPipeError:
-                broken = True
-            code = process.wait()
-        if broken or code != 0:
-            raise MediaError(f"encoding failed: {_tail(errors)}")
-    return count
+            # The encoder has stopped. close() reports why, so one bad frame isn't blamed for it.
+            self._broken = True
+
+    def close(self) -> int:
+        """Finish the file and return the frame count. Raises if the encoder failed or nothing was written."""
+        if self._process is None:
+            raise MediaError("no frames to encode")
+        assert self._process.stdin is not None and self._errors is not None
+        try:
+            self._process.stdin.close()
+        except BrokenPipeError:
+            self._broken = True
+        code = self._process.wait()
+        with self._errors as errors:
+            if self._broken or code != 0:
+                raise MediaError(f"encoding failed: {_tail(errors)}")
+        return self.count
+
+    def abort(self) -> None:
+        if self._process is None:
+            return
+        self._process.kill()
+        self._process.wait()
+        if self._errors is not None:
+            self._errors.close()
+
+
+def write_video(frames: Iterable[np.ndarray], path: Path, fps: int, crf: int = 16) -> int:
+    """Encode a whole clip. Returns the frame count."""
+    writer = VideoWriter(path, fps, crf)
+    try:
+        for frame in frames:
+            writer.write(frame)
+    except BaseException:
+        writer.abort()
+        raise
+    return writer.close()
 
 
 def finalize_output(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -80,6 +81,10 @@ async def test_scope_check_passes_only_when_the_api_refuses() -> None:
             assert body["backends"] == ["not-a-backend"]
             return type("Response", (), {"status_code": self.status})()
 
-    settings = type("Settings", (), {"worker_id": "w", "backend": "mock", "device_profile": "cpu"})()
+    settings = type(
+        "Settings",
+        (),
+        {"worker_id": "w", "backend": "mock", "device_profile": "cpu", "scratch_dir": Path("/nonexistent")},
+    )()
     assert (await worker_check.check_scope(Api(403), settings))["ok"] is True
     assert (await worker_check.check_scope(Api(204), settings))["ok"] is False
