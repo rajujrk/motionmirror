@@ -47,7 +47,9 @@ def test_size_not_divisible_by_16_is_rejected(pipe: Any) -> None:
         run(pipe, height=24, width=16)
 
 
-def test_segment_length_not_4n_plus_1_is_floored(pipe: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_segment_length_not_4n_plus_1_is_floored(
+    pipe: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     seen: list[int] = []
     original = pipe.prepare_latents
 
@@ -62,7 +64,16 @@ def test_segment_length_not_4n_plus_1_is_floored(pipe: Any, monkeypatch: pytest.
 
 @pytest.mark.parametrize(
     ("num_frames", "segment", "prev"),
-    [(9, 9, 1), (17, 9, 1), (25, 9, 1), (23, 9, 1), (5, 9, 1), (21, 13, 5), (33, 17, 5), (13, 13, 5)],
+    [
+        (9, 9, 1),
+        (17, 9, 1),
+        (25, 9, 1),
+        (23, 9, 1),
+        (5, 9, 1),
+        (21, 13, 5),
+        (33, 17, 5),
+        (13, 13, 5),
+    ],
 )
 def test_output_has_exactly_one_frame_per_pose_frame(
     pipe: Any, num_frames: int, segment: int, prev: int
@@ -82,14 +93,26 @@ def test_segment_shorter_than_twice_the_conditioning_frames_fails(
 ) -> None:
     """Pins an upstream limit: the validator must reject segment < 2 * prev before any GPU work."""
     with pytest.raises((RuntimeError, AssertionError)):
-        run(pipe, num_frames=num_frames, segment_frame_length=segment, prev_segment_conditioning_frames=prev)
+        run(
+            pipe,
+            num_frames=num_frames,
+            segment_frame_length=segment,
+            prev_segment_conditioning_frames=prev,
+        )
 
 
 @pytest.mark.parametrize(("num_frames", "prev"), [(1, 1), (5, 5), (3, 5)])
-def test_clip_no_longer_than_the_conditioning_frames_fails(pipe: Any, num_frames: int, prev: int) -> None:
+def test_clip_no_longer_than_the_conditioning_frames_fails(
+    pipe: Any, num_frames: int, prev: int
+) -> None:
     """Pins an upstream limit: the validator must require num_frames > prev."""
     with pytest.raises(ValueError, match="non-empty"):
-        run(pipe, num_frames=num_frames, segment_frame_length=13, prev_segment_conditioning_frames=prev)
+        run(
+            pipe,
+            num_frames=num_frames,
+            segment_frame_length=13,
+            prev_segment_conditioning_frames=prev,
+        )
 
 
 def test_white_mask_means_generate_and_black_means_preserve(

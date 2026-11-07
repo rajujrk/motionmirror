@@ -14,6 +14,8 @@ Milestone 0, Phase 0 spikes.
 | Task | Tier | Evidence | Commands run |
 | --- | --- | --- | --- |
 | T0.1 Repo baseline | P0 | Documents moved to `docs/product/`, ADRs 0001-0007 written | `git`, `brew install openjdk@21`, `open -a OrbStack` |
+| T0.2 Diffusers contract spike | P0 | 38 contract tests pass on CPU and MPS. Two upstream crash limits pinned. `docs/MODEL_CAPABILITIES.md` | `uv run --extra wan --group dev pytest tests/contract` |
+| T0.5 Training-path spike | P0 | Source read at pinned commit. Found and fixed a silent adapter no-op (`load_adapter`). `docs/TRAINING.md` | `uv run --extra wan --group dev pytest tests/contract/test_adapter_key_compat.py` (6 passed) |
 
 ## Blockers
 
