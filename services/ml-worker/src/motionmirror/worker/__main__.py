@@ -23,6 +23,13 @@ async def keep_registered(api: ApiClient, body: dict[str, object]) -> None:
         await asyncio.sleep(REGISTER_EVERY_SECONDS)
 
 
+def output_label(backend: str, device: str) -> str:
+    """Only a CUDA worker's output can count as real. A Mac or CPU run is experimental, whatever it produces."""
+    if backend == "mock":
+        return "mock"
+    return "real" if device == "cuda" else "experimental"
+
+
 def describe(settings: WorkerSettings) -> dict[str, object]:
     backends = {
         "mock": ["mock"],
@@ -33,7 +40,7 @@ def describe(settings: WorkerSettings) -> dict[str, object]:
         "worker_id": settings.worker_id,
         "backends": backends.get(settings.backend, [settings.backend]),
         "device_type": settings.device_profile,
-        "capabilities": {"output_label": "mock" if settings.backend == "mock" else "real"},
+        "capabilities": {"output_label": output_label(settings.backend, settings.device_profile)},
         "adapters": [],
         "runtime": {"python": platform.python_version(), "machine": platform.machine()},
     }

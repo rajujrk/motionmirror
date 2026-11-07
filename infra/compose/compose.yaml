@@ -144,6 +144,9 @@ services:
       MM_REDIS_HOST: redis
       MM_REDIS_PORT: "6379"
       MM_REDIS_PASSWORD: ${MM_REDIS_PASSWORD}
+      MM_GENERATE_BACKEND: ${MM_GENERATE_BACKEND:-mock}
+      MM_PREPROCESS_BACKEND: ${MM_PREPROCESS_BACKEND:-mock}
+      MM_RETENTION_PROJECT_DAYS: ${MM_RETENTION_PROJECT_DAYS:-0}
       MM_S3_INTERNAL_ENDPOINT: http://seaweedfs:8333
       MM_S3_PUBLIC_ENDPOINT: ${MM_S3_PUBLIC_ENDPOINT}
       MM_S3_ACCESS_KEY: ${MM_S3_ACCESS_KEY}
@@ -202,6 +205,35 @@ services:
       MM_OIDC_CLIENT_SECRET: ${MM_WORKER_MOCK_CLIENT_SECRET}
       MM_AMQP_URL: amqp://mm-consumer-mock:${MM_RABBIT_CONSUMER_MOCK_PASSWORD}@rabbitmq:5672/motionmirror
       MM_QUEUES: motionmirror.preprocess.mock.v1,motionmirror.generate.mock.v1
+    depends_on:
+      api: {condition: service_healthy}
+
+  # linux/amd64 on purpose: the CUDA wheels only exist there. Weights come from the host and are never in the image.
+  worker-wan:
+    profiles: [gpu]
+    platform: linux/amd64
+    restart: unless-stopped
+    build:
+      context: ../../
+      dockerfile: services/ml-worker/Dockerfile.cuda
+      platforms: [linux/amd64]
+    image: ${MM_WORKER_WAN_IMAGE:-motionmirror/worker-wan:dev}
+    gpus: all
+    environment:
+      MM_WORKER_ID: wan-1
+      MM_BACKEND: wan-animate
+      MM_DEVICE_PROFILE: cuda
+      MM_WAN_DTYPE: ${MM_WAN_DTYPE:-bfloat16}
+      MM_WAN_OFFLOAD: ${MM_WAN_OFFLOAD:-model}
+      MM_API_BASE_URL: http://api:8081
+      MM_OIDC_TOKEN_URL: http://keycloak:8080/auth/realms/motionmirror/protocol/openid-connect/token
+      MM_OIDC_CLIENT_ID: motionmirror-worker-wan
+      MM_OIDC_CLIENT_SECRET: ${MM_WORKER_WAN_CLIENT_SECRET}
+      MM_AMQP_URL: amqp://mm-consumer-wan:${MM_RABBIT_CONSUMER_WAN_PASSWORD}@rabbitmq:5672/motionmirror
+      MM_QUEUES: motionmirror.preprocess.v1,motionmirror.generate.wan-animate.v1
+    volumes:
+      - ${MM_MODEL_CACHE_DIR:-../../.models}:/models:ro
+      - ${MM_BENCHMARK_DIR:-../../.data/benchmark}:/media
     depends_on:
       api: {condition: service_healthy}
 

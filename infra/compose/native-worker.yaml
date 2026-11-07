@@ -1,0 +1,13 @@
+# Workers run on the host instead of in containers, so tracking can use the Mac's GPU. Containers can't reach a host
+# address and the host can't reach a Docker name, and a signed URL only works for one of them, so in this mode no
+# worker runs in a container. Everything published here stays on loopback.
+services:
+  api:
+    environment:
+      MM_PREPROCESS_BACKEND: real-preprocess
+      MM_GENERATE_BACKEND: ${MM_GENERATE_BACKEND:-mock}
+      MM_S3_WORKER_ENDPOINT: http://127.0.0.1:${MM_HOST_S3_PORT}
+    ports: !override
+      - "127.0.0.1:${MM_HOST_API_PORT:-58081}:8081"
+  worker-mock:
+    profiles: !override [container-worker]

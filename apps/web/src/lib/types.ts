@@ -62,7 +62,7 @@ export type Job = {
   state: "QUEUED" | "RUNNING" | "RETRY_WAIT" | "CANCEL_REQUESTED" | "SUCCEEDED" | "FAILED" | "CANCELLED";
   stage: string | null;
   backendId: string;
-  outputLabel: "mock" | "real";
+  outputLabel: "mock" | "real" | "experimental";
   configRevision: string;
   requestedSettings: JsonObject;
   effectiveSettings: JsonObject;

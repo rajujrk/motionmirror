@@ -342,6 +342,20 @@ class DeletionIT {
     }
 
     @Test
+    void aStorageProbeWorksThroughSignedUrlsAndCleansItselfUp() throws Exception {
+        WorkerDtos.StorageProbe probe = leases.storageProbe();
+        HttpClient client = HttpClient.newHttpClient();
+        HttpResponse<String> written = client.send(HttpRequest.newBuilder(URI.create(probe.writeUrl()))
+                .header("Content-Type", probe.contentType()).PUT(HttpRequest.BodyPublishers.ofString("probe")).build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(written.statusCode()).isEqualTo(200);
+        HttpResponse<String> read = client.send(HttpRequest.newBuilder(URI.create(probe.readUrl())).GET().build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(read.body()).isEqualTo("probe");
+
+        purger().purgeTombstones(Duration.ZERO);
+        assertThat(client.send(HttpRequest.newBuilder(URI.create(probe.readUrl())).GET().build(), HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(404);
+    }
+
+    @Test
     void anotherUserCantDeleteYourData() throws Exception {
         UUID owner = fixtures.user();
         UUID project = fixtures.project(owner);

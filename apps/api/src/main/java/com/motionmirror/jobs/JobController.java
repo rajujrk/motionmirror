@@ -145,11 +145,23 @@ public class JobController {
         List<OutputView> outputs = store.outputs(job.id()).stream()
                 .map(row -> new OutputView(row.name(), row.contentType(), row.sizeBytes(), row.sha256(), Json.read(row.media())))
                 .toList();
+        JsonNode effective = Json.read(job.effectiveSettings());
         return new JobView(job.id(), job.projectId(), job.kind().name(), job.state().name(), job.stage(), job.backendId(),
-                JobRouting.MOCK.equals(job.backendId()) ? "mock" : "real", job.configRevision(), Json.read(job.requestedSettings()),
-                Json.read(job.effectiveSettings()), Json.read(job.inputs()), job.attemptCount(), job.maxAttempts(),
+                outputLabel(job.backendId(), effective), job.configRevision(), Json.read(job.requestedSettings()),
+                effective, Json.read(job.inputs()), job.attemptCount(), job.maxAttempts(),
                 job.nextAttemptAt(), job.failureCode(), job.failureDetail(), job.createdAt(), job.updatedAt(), job.finishedAt(),
                 progress, outputs);
+    }
+
+    /**
+     * Only a run recorded on a CUDA device counts as real. A Mac or CPU worker is experimental, and until a run records
+     * its device nothing has earned the better label yet.
+     */
+    static String outputLabel(String backendId, JsonNode effectiveSettings) {
+        if (JobRouting.MOCK.equals(backendId)) {
+            return "mock";
+        }
+        return "cuda".equals(effectiveSettings.path("device_type").asString("")) ? "real" : "experimental";
     }
 
     private static Integer intOrNull(JsonNode node, String field) {

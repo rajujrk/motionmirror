@@ -8,7 +8,9 @@ from pathlib import Path
 
 from motionmirror.media.ffmpeg import MediaError, file_input
 
-SCENE_THRESHOLD = 0.4
+# Measured on the TikTok dataset: 0.4 missed one of six real joins, and 0.3 caught them all with no false alarms on
+# 26 continuous clips. A false alarm costs a trim, while a miss tracks silently across a cut. See docs/DATASETS.md.
+SCENE_THRESHOLD = 0.3
 _TIME = re.compile(r"pts_time:([0-9.]+)")
 
 

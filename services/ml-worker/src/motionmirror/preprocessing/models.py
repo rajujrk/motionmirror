@@ -88,6 +88,7 @@ class VitPoseEstimator:
 
         self.revision = revision
         self.model = ViTPose(str(checkpoint), device=device if device == "cuda" else "cpu")
+        require_gpu_session(self.model.session, device)
 
     def estimate(self, frames: list[np.ndarray], boxes: list[tuple[int, int, int, int] | None]) -> list[dict[str, Any]]:
         from motionmirror.preprocessing.wan_vendor.pose2d_utils import load_pose_metas_from_kp2ds_seq
@@ -118,6 +119,12 @@ class VitPoseEstimator:
 
         canvas = np.zeros((height, width, 3), dtype=np.uint8)
         return draw_aapose_by_meta_new(canvas, AAPoseMeta.from_humanapi_meta(meta))
+
+
+def require_gpu_session(session: Any, device: str) -> None:
+    """ONNX Runtime falls back to the CPU with only a warning, so a CUDA worker would silently crawl."""
+    if device == "cuda" and "CUDAExecutionProvider" not in session.get_providers():
+        raise AttemptFailure("UNSUPPORTED_CAPABILITY", "Pose estimation can't use the GPU on this worker")
 
 
 def face_box(points: np.ndarray, scale: float, shape: tuple[int, int]) -> tuple[int, int, int, int] | None:

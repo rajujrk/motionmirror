@@ -42,6 +42,16 @@ public class CapabilitiesController {
         return cache.getOrLoad("capabilities", Duration.ofSeconds(20), Capabilities.class, this::load);
     }
 
+    /** What a job would produce now. With no CUDA worker online the honest answer isn't real, whatever is configured. */
+    static String generationLabel(String generateBackend, List<WorkerView> workers) {
+        if ("mock".equals(generateBackend)) {
+            return "mock";
+        }
+        boolean cudaOnline = workers.stream()
+                .anyMatch(worker -> worker.online() && "cuda".equals(worker.deviceType()) && worker.backends().contains(generateBackend));
+        return cudaOnline ? "real" : "experimental";
+    }
+
     private Capabilities load() {
         Instant threshold = Instant.now().minus(ONLINE_WINDOW);
         List<WorkerView> workers = jdbc.sql("""
@@ -55,6 +65,6 @@ public class CapabilitiesController {
                 })
                 .list();
         String generate = properties.backends().generate();
-        return new Capabilities(generate, properties.backends().preprocess(), "mock".equals(generate) ? "mock" : "real", properties.retention().projectDays(), workers);
+        return new Capabilities(generate, properties.backends().preprocess(), generationLabel(generate, workers), properties.retention().projectDays(), workers);
     }
 }

@@ -17,7 +17,7 @@ from typing import Any
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
-CONFIG_PATH = REPO_ROOT / "configs" / "models" / "wan-animate-14b.yaml"
+CONFIG_PATH = Path(os.environ.get("MM_MODELS_CONFIG", REPO_ROOT / "configs" / "models" / "wan-animate-14b.yaml"))
 DISK_MARGIN_BYTES = 5 * 1024**3
 
 

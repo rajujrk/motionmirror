@@ -43,6 +43,8 @@ public class LeaseService {
 
     public record AttemptRow(UUID id, UUID jobId, int attemptNo, long fencingToken, String state, Instant leaseExpiresAt, String workerId) {}
 
+    private static final String PROBE_TYPE = "text/plain";
+
     private final JdbcClient jdbc;
     private final JobStore jobs;
     private final ObjectStorage storage;
@@ -271,6 +273,15 @@ public class LeaseService {
         var row = jdbc.sql("SELECT artifact_key, sha256, scale FROM model_adapters WHERE id = :id").param("id", adapterId).query().singleRow();
         return new WorkerDtos.AdapterAccessResponse(storage.presignWorkerRead((String) row.get("artifact_key")),
                 (String) row.get("sha256"), ((Number) row.get("scale")).doubleValue());
+    }
+
+    /** The purger removes it, so a probe can't be left behind even if the worker stops halfway through. */
+    @Transactional
+    public WorkerDtos.StorageProbe storageProbe() {
+        String key = "probes/" + UUID.randomUUID();
+        jdbc.sql("INSERT INTO deletion_tombstones (object_key, owner_id) VALUES (:key, :system)")
+                .param("key", key).param("system", new UUID(0, 0)).update();
+        return new WorkerDtos.StorageProbe(storage.presignWorkerWrite(key, PROBE_TYPE), storage.presignWorkerRead(key), PROBE_TYPE);
     }
 
     public static String attemptPrefix(UUID attemptId) {

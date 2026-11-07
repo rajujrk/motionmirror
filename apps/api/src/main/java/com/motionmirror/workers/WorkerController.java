@@ -96,6 +96,12 @@ public class WorkerController {
         return leases.artifactAccess(id, request);
     }
 
+    /** Lets a worker prove signed URLs work from where it is, before anything real depends on them. */
+    @PostMapping("/workers/storage-probe")
+    public WorkerDtos.StorageProbe storageProbe() {
+        return leases.storageProbe();
+    }
+
     @PostMapping("/adapters/{id}/artifact-access")
     public WorkerDtos.AdapterAccessResponse adapterAccess(@PathVariable UUID id, @Valid @RequestBody WorkerDtos.AdapterAccessRequest request) {
         return leases.adapterAccess(id, request);

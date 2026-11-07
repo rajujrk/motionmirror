@@ -88,6 +88,11 @@ public final class WorkerDtos {
 
     public record AdapterAccessResponse(String url, String sha256, double scale) {}
 
+    public record StorageProbe(
+            @JsonProperty("write_url") String writeUrl,
+            @JsonProperty("read_url") String readUrl,
+            @JsonProperty("content_type") String contentType) {}
+
     public record JobStatus(String state) {}
 
     public record ArtifactAccessRequest(

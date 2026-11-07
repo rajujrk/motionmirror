@@ -5,7 +5,7 @@ description = "MotionMirror training track: dataset tools, sample building, adap
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "httpx>=0.28,<1",
-    "motionmirror[wan]",
+    "motionmirror[wan,preprocess]",
     "pydantic>=2.9,<3",
     "pyyaml>=6,<7",
     "safetensors>=0.5,<1",

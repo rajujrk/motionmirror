@@ -84,6 +84,27 @@ def datasets_validate(dataset_id: str) -> int:
     return 1 if failures else 0
 
 
+def samples_build(dataset_id: str, limit: int | None, clips: list[str] | None) -> int:
+    """Real pose estimation on real clips. Slow on a Mac, so it takes a limit."""
+    from motionmirror.preprocessing.models import load_pose_estimator
+    from motionmirror_training.datasets.samples import build_samples
+
+    entry = load_registry(REGISTRY_PATH).get(dataset_id)
+    root = dataset_root() / dataset_id
+    report = build_samples(
+        root / "download" / f"{dataset_id}.zip",
+        entry,
+        root / "built",
+        load_pose_estimator(),
+        limit,
+        clips,
+    )
+    print(
+        f"built {len(report.samples)} samples, rejected {len(report.rejections)}. See {root / 'built' / 'manifest.json'}"
+    )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="mm-train")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -91,11 +112,17 @@ def main(argv: list[str] | None = None) -> int:
     fetch.add_argument("--dataset", required=True)
     validate = commands.add_parser("datasets-validate")
     validate.add_argument("--dataset", required=True)
+    build = commands.add_parser("samples-build")
+    build.add_argument("--dataset", required=True)
+    build.add_argument("--limit", type=int, help="stop after this many samples")
+    build.add_argument("--clip", action="append", help="only these clip ids")
     args = parser.parse_args(argv)
 
     try:
         if args.command == "datasets-fetch":
             return datasets_fetch(args.dataset)
+        if args.command == "samples-build":
+            return samples_build(args.dataset, args.limit, args.clip)
         return datasets_validate(args.dataset)
     except DatasetBlockedError as blocked:
         print(f"licence gate: {blocked}", file=sys.stderr)

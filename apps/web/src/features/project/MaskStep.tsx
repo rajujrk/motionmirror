@@ -56,7 +56,7 @@ export function MaskStep({
           {job.outputLabel === "mock" ? (
             <MockTape detail="This box is a stand-in. No tracking ran." />
           ) : (
-            <RealBadge />
+            <RealBadge experimental={job.outputLabel === "experimental"} />
           )}
           {track?.warnings?.map((warning) => <ErrorNote key={warning}>{warning}</ErrorNote>)}
           <Stage>

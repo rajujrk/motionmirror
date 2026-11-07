@@ -154,14 +154,16 @@ def run_preprocess(
         described.append({"name": name, "path": str(output_dir / name), "content_type": "video/mp4"})
 
     tool_revision = f"{tracker.revision}+{pose.revision}"
+    device = os.environ.get("MM_DEVICE_PROFILE", "cpu")
+    label = "real" if device == "cuda" else "experimental"
     track = report.as_dict()
     manifest_path = output_dir / "preprocess_manifest.json"
     manifest_path.write_text(
         json.dumps(
             {
-                "output_label": "real",
+                "output_label": label,
                 "tool_revision": tool_revision,
-                "device_type": os.environ.get("MM_DEVICE_PROFILE", "cpu"),
+                "device_type": device,
                 "selection_revision": inputs.get("selection_revision"),
                 "frames": len(frames),
                 "fps": fps,
@@ -178,8 +180,8 @@ def run_preprocess(
     )
     return {
         "outputs": described,
-        "result": {"tool_revision": tool_revision, "output_label": "real"},
-        "effective_settings": {"track": track, "frames": len(frames)},
+        "result": {"tool_revision": tool_revision, "output_label": label},
+        "effective_settings": {"track": track, "frames": len(frames), "device_type": device},
     }
 
 

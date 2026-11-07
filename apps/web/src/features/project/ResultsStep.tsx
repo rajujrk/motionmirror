@@ -88,7 +88,7 @@ function JobResult({ job, onChanged }: { job: Job; onChanged: () => void }) {
       <JobStatus job={job} />
       {job.state === "SUCCEEDED" ? (
         <>
-          {job.outputLabel === "mock" ? <MockTape /> : <RealBadge />}
+          {job.outputLabel === "mock" ? <MockTape /> : <RealBadge experimental={job.outputLabel === "experimental"} />}
           <Comparison job={job} />
           <div className="flex flex-wrap items-center gap-3">
             {output.data ? (

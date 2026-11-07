@@ -73,6 +73,12 @@ class ApiClient:
             self._token_expires = time.monotonic() + max(int(body.get("expires_in", 60)) - 30, 5)
         return str(self._token)
 
+    async def authenticate(self) -> None:
+        await self._bearer()
+
+    async def post(self, path: str, body: dict[str, Any]) -> httpx.Response:
+        return await self._post(path, body)
+
     async def _post(self, path: str, body: dict[str, Any]) -> httpx.Response:
         """Bounded retries for transient faults only. Every endpoint here is safe to repeat."""
         delay = 0.5
