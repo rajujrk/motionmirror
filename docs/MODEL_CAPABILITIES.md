@@ -44,6 +44,16 @@ These crash the pinned pipeline and are caught before any GPU work is spent.
 The plan expected a test that white mask regions change while black regions stay nearer the source. Random weights can't show
 that, so the test checks the polarity of the conditioning mask directly, which is what the code controls.
 
+## Verified against the real architecture, without weights
+
+The transformer's pinned config sets `added_kv_proj_dim: 5120`, so the real model has image cross-attention layers (`attn2.add_k_proj`, `attn2.add_v_proj`). The tiny test model matches this, checked by a guard test that builds the real architecture with empty weights.
+
+## Real preprocessing, measured on a real clip
+
+Real SAM 2 and ViTPose produce the official control format through this project's selection-driven pipeline. See `docs/BENCHMARKS.md`. Numeric checks on real output: the edit region covers the dancer, skeleton pixels sit on the dancer, and the background is blanked inside the person.
+
+**A known risk to check on a GPU.** With the official settings the edit region is the dancer's whole bounding rectangle: 53% of the frame against the dancer's 32% on a test clip. Anything else inside it is regenerated, including another dancer in a multi-person clip.
+
 ## Not yet verified
 
-Pose and face control formats, real preprocessing, real memory use, adapter loading, and any visual quality.
+Real memory use and speed, adapter effect, and any visual quality of generated video: `pending GPU validation`.

@@ -6,6 +6,7 @@ RabbitMQ transports tasks. PostgreSQL decides what happens. Delivery is at-least
 
 | Queue | Routing key | Consumer |
 | --- | --- | --- |
+| `motionmirror.validate.v1` | `validate` | CPU validation worker, so checking an upload never needs a GPU |
 | `motionmirror.preprocess.mock.v1` | `preprocess.mock` | Mock worker |
 | `motionmirror.generate.mock.v1` | `generate.mock` | Mock worker |
 | `motionmirror.preprocess.v1` | `preprocess.real` | Real preprocessing worker |
@@ -20,6 +21,7 @@ All are durable quorum queues with `x-delivery-limit: 5`, `x-max-length: 1000` a
 | --- | --- |
 | `mm-provision` | Administer topology. Not used at runtime |
 | `mm-publisher` | Write to `motionmirror.tasks` only |
+| `mm-consumer-validate` | Read the validation queue only |
 | `mm-consumer-mock` | Read mock queues only |
 | `mm-consumer-wan` | Read real queues only |
 | `mm-monitor` | Monitoring tag, no data access |
