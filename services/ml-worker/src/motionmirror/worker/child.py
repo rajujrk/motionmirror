@@ -49,11 +49,11 @@ def run_validate(spec: dict[str, Any], context: JobContext) -> dict[str, Any]:
             outputs: list[dict[str, str]] = []
             digest = sha256_file(path)
         else:
-            normalized = context.workspace / "normalized"
+            normalized = context.workspace / "normalized.png"
             media = validate_image(path, normalized)
             detected = "image/png"
             digest = sha256_file(normalized)
-            outputs = [{"name": "normalized", "path": str(normalized), "content_type": "image/png"}]
+            outputs = [{"name": "normalized.png", "path": str(normalized), "content_type": "image/png"}]
     except RejectedMedia as rejected:
         raise AttemptFailure("INVALID_MEDIA", str(rejected)) from rejected
     return {

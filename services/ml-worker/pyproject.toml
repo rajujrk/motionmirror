@@ -32,6 +32,7 @@ dev = [
     "mypy>=1.14,<2",
     "pytest>=8.3,<10",
     "pytest-asyncio>=0.25,<2",
+    "pytest-timeout>=2.3,<3",
     "ruff>=0.9,<1",
 ]
 
@@ -46,6 +47,7 @@ packages = ["src/motionmirror"]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
 asyncio_mode = "strict"
+timeout = 180
 asyncio_default_fixture_loop_scope = "function"
 markers = [
     "requires_wan: needs the wan extra (torch, diffusers); no real weights",

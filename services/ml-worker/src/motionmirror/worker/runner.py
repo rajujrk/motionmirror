@@ -11,6 +11,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+import httpx
+
 from motionmirror.backends.mock import sha256_file
 from motionmirror.media.probe import probe
 from motionmirror.worker.api_client import ApiClient, ApiUnavailable, Lease, LeaseLost
@@ -70,7 +72,10 @@ class AttemptRunner:
 
     async def _run(self, lease: Lease, workspace: Path) -> str:
         request = lease.request
-        input_paths = await self._fetch_inputs(lease, workspace)
+        try:
+            input_paths = await self._fetch_inputs(lease, workspace)
+        except httpx.HTTPError as error:
+            return await self._storage_failure(lease, "fetching inputs", error)
         spec_path = workspace / "spec.json"
         attempt_dir = workspace / "attempt"
         spec_path.write_text(
@@ -83,10 +88,18 @@ class AttemptRunner:
             return await self._api.fail(lease, outcome["code"], outcome["detail"], outcome["retryable"])
 
         await self._report(lease, "upload")
-        outputs = await self._upload_outputs(lease, outcome["outputs"])
+        try:
+            outputs = await self._upload_outputs(lease, outcome["outputs"])
+        except httpx.HTTPError as error:
+            return await self._storage_failure(lease, "saving outputs", error)
         return await self._api.complete(
             lease, outputs, outcome.get("result", {}), outcome.get("effective_settings", {})
         )
+
+    async def _storage_failure(self, lease: Lease, doing: str, error: httpx.HTTPError) -> str:
+        """Report it now and let the API's retry policy decide, rather than waiting for the lease to expire."""
+        log.warning("storage failed while %s for job %s: %s", doing, lease.job_id, type(error).__name__)
+        return await self._api.fail(lease, "STORAGE_ERROR", f"Storage failed while {doing}", True)
 
     async def _fetch_inputs(self, lease: Lease, workspace: Path) -> dict[str, str]:
         reads = reads_for(lease.request)
@@ -183,15 +196,16 @@ class AttemptRunner:
         for output in outputs:
             path = Path(output["path"])
             write = access["writes"][output["name"]]
-            await self._api.upload(write["url"], path, output["content_type"])
+            # The URL is signed for this exact type. Sending another would fail the signature check.
+            await self._api.upload(write["url"], path, write["content_type"])
             references.append(
                 {
                     "name": output["name"],
                     "key": write["key"],
                     "sha256": sha256_file(path),
                     "size_bytes": path.stat().st_size,
-                    "content_type": output["content_type"],
-                    "media": _output_media(path, output["content_type"]),
+                    "content_type": write["content_type"],
+                    "media": _output_media(path, write["content_type"]),
                 }
             )
         return references

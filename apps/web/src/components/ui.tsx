@@ -1,6 +1,6 @@
 "use client";
 
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import type { ButtonHTMLAttributes, CSSProperties, ReactNode } from "react";
 
 type Variant = "primary" | "plain" | "quiet";
 
@@ -22,9 +22,19 @@ export function Button({
 }
 
 /** A dancer's spike mark: two crossed strips of tape. */
-export function TapeX({ color = "var(--color-tape)", size = 24, className }: { color?: string; size?: number; className?: string }) {
+export function TapeX({
+  color = "var(--color-tape)",
+  size = 24,
+  className,
+  style,
+}: {
+  color?: string;
+  size?: number;
+  className?: string;
+  style?: CSSProperties;
+}) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" className={className}>
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" className={className} style={style}>
       <polygon points="3.2,5.4 5.6,3.1 20.9,18.4 18.5,20.8" fill={color} />
       <polygon points="18.6,3.2 20.8,5.5 5.4,20.9 3.1,18.5" fill={color} opacity="0.86" />
     </svg>

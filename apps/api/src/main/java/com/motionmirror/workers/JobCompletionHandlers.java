@@ -17,6 +17,8 @@ import tools.jackson.databind.JsonNode;
 @Component
 public class JobCompletionHandlers {
 
+    private static final String NORMALIZED_IMAGE = "normalized.png";
+
     private final AssetRepository assets;
     private final JobStore jobs;
     private final JdbcClient jdbc;
@@ -38,9 +40,9 @@ public class JobCompletionHandlers {
         AssetEntity asset = assets.findById(UUID.fromString(Json.read(job.inputs()).get("asset_id").asString())).orElseThrow();
         Map<String, Object> result = request.result() == null ? Map.of() : request.result();
         // A photo may have been normalized by the worker (EXIF removed, orientation applied).
-        String key = request.outputs().stream().filter(output -> output.name().equals("normalized")).findFirst()
+        String key = request.outputs().stream().filter(output -> output.name().equals(NORMALIZED_IMAGE)).findFirst()
                 .map(WorkerDtos.OutputRef::key).orElse(asset.getObjectKey());
-        long size = request.outputs().stream().filter(output -> output.name().equals("normalized")).findFirst()
+        long size = request.outputs().stream().filter(output -> output.name().equals(NORMALIZED_IMAGE)).findFirst()
                 .map(WorkerDtos.OutputRef::sizeBytes).orElse(asset.getSizeBytes());
         asset.markReady(key, size, String.valueOf(result.get("sha256")), String.valueOf(result.get("detected_type")),
                 Json.write(result.getOrDefault("media", Map.of())));

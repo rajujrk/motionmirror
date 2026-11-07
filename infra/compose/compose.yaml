@@ -139,8 +139,10 @@ services:
       MM_DB_URL: jdbc:postgresql://postgres:5432/motionmirror
       MM_DB_PASSWORD: ${MM_DB_PASSWORD}
       MM_RABBIT_HOST: rabbitmq
+      MM_RABBIT_PORT: "5672"
       MM_RABBIT_PUBLISHER_PASSWORD: ${MM_RABBIT_PUBLISHER_PASSWORD}
       MM_REDIS_HOST: redis
+      MM_REDIS_PORT: "6379"
       MM_REDIS_PASSWORD: ${MM_REDIS_PASSWORD}
       MM_S3_INTERNAL_ENDPOINT: http://seaweedfs:8333
       MM_S3_PUBLIC_ENDPOINT: ${MM_S3_PUBLIC_ENDPOINT}
@@ -172,6 +174,8 @@ services:
     profiles: [lite, full, gpu]
     build: {context: ../../, dockerfile: apps/web/Dockerfile}
     image: motionmirror/web:dev
+    environment:
+      MM_S3_PUBLIC_ENDPOINT: ${MM_S3_PUBLIC_ENDPOINT}
     depends_on:
       api: {condition: service_healthy}
 

@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
 from motionmirror.worker.api_client import Lease, LeaseLost
@@ -19,12 +20,19 @@ class FakeApi:
         self.heartbeats = 0
         self.cancel_after = cancel_after
         self.lease_lost = lease_lost
+        self.uploaded_types: list[str] = []
+        self.upload_error: Exception | None = None
 
     async def artifact_access(self, lease: Lease, reads: list[str], writes: list[str]) -> dict[str, Any]:
         return {
             "reads": {name: f"https://read/{name}" for name in reads},
             "writes": {
-                name: {"key": f"attempts/{lease.attempt_id}/{name}", "url": f"https://write/{name}"} for name in writes
+                name: {
+                    "key": f"attempts/{lease.attempt_id}/{name}",
+                    "url": f"https://write/{name}",
+                    "content_type": "signed/type",
+                }
+                for name in writes
             },
         }
 
@@ -34,6 +42,9 @@ class FakeApi:
 
     async def upload(self, url: str, path: Path, content_type: str) -> None:
         self.calls.append(("upload", path.name))
+        self.uploaded_types.append(content_type)
+        if self.upload_error:
+            raise self.upload_error
 
     async def heartbeat(self, lease: Lease) -> bool:
         self.heartbeats += 1
@@ -191,3 +202,38 @@ async def test_the_real_child_validates_media_end_to_end(tmp_path: Path, clip_wi
     completed = [call for call in api.calls if call[0] == "complete"]
     assert completed
     assert json.dumps(completed[0][1]) == "[]"
+
+
+SUCCESS_WITH_OUTPUT = """
+out = workspace / "result.json"; out.write_text("{}")
+(workspace / "attempt_result.json").write_text(json.dumps({"ok": True, "outputs": [
+    {"name": "result.json", "path": str(out), "content_type": "application/json"}]}))
+"""
+
+
+@pytest.mark.asyncio
+async def test_an_upload_uses_the_content_type_the_url_was_signed_for(tmp_path: Path) -> None:
+    api = FakeApi()
+    await runner(api, tmp_path, child(tmp_path, SUCCESS_WITH_OUTPUT)).run(LEASE)
+    assert api.uploaded_types == ["signed/type"]
+
+
+@pytest.mark.asyncio
+async def test_a_storage_failure_on_upload_is_reported_at_once_as_retryable(tmp_path: Path) -> None:
+    api = FakeApi()
+    api.upload_error = httpx.ConnectError("storage down")
+    assert await runner(api, tmp_path, child(tmp_path, SUCCESS_WITH_OUTPUT)).run(LEASE) == "FAILED"
+    assert ("fail", "STORAGE_ERROR", True) in api.calls
+    assert not [call for call in api.calls if call[0] == "complete"]
+
+
+@pytest.mark.asyncio
+async def test_a_storage_failure_on_download_is_reported_at_once_as_retryable(tmp_path: Path) -> None:
+    api = FakeApi()
+
+    async def failing_download(url: str, target: Path) -> None:
+        raise httpx.ConnectError("storage down")
+
+    api.download = failing_download  # type: ignore[method-assign]
+    assert await runner(api, tmp_path, child(tmp_path, SUCCESS_WITH_OUTPUT)).run(LEASE) == "FAILED"
+    assert ("fail", "STORAGE_ERROR", True) in api.calls

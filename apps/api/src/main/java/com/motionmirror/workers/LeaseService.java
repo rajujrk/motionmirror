@@ -251,7 +251,8 @@ public class LeaseService {
         Map<String, WorkerDtos.ArtifactWrite> writes = new LinkedHashMap<>();
         for (String name : request.writes() == null ? List.<String>of() : request.writes()) {
             String key = attemptPrefix(attempt.id()) + name;
-            writes.put(name, new WorkerDtos.ArtifactWrite(key, storage.presignWorkerWrite(key, contentType(name))));
+            String type = contentType(name);
+            writes.put(name, new WorkerDtos.ArtifactWrite(key, storage.presignWorkerWrite(key, type), type));
         }
         return new WorkerDtos.ArtifactAccessResponse(reads, writes);
     }

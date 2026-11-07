@@ -70,7 +70,7 @@ class LeaseIT {
         WorkerDtos.ArtifactWrite write = access.writes().get(name);
         HttpResponse<String> response = HttpClient.newHttpClient().send(
                 HttpRequest.newBuilder(URI.create(write.url()))
-                        .header("Content-Type", "video/mp4")
+                        .header("Content-Type", write.contentType())
                         .PUT(HttpRequest.BodyPublishers.ofByteArray(body)).build(),
                 HttpResponse.BodyHandlers.ofString());
         assertThat(response.statusCode()).isEqualTo(200);
@@ -157,6 +157,15 @@ class LeaseIT {
         assertThat(jobs.outputs(job.id())).hasSize(1);
         LeaseService.AcquireResult redelivered = acquire(job, "other");
         assertThat(((LeaseService.Refused) redelivered).disposition()).isEqualTo(LeaseService.DUPLICATE);
+    }
+
+    @Test
+    void anUploadSucceedsWithTheContentTypeTheApiSaysItSigned() throws Exception {
+        JobRow job = job();
+        WorkerDtos.AcquireResponse attempt = acquired(job, "w");
+        for (String name : List.of("normalized.png", "result.mp4", "manifest.json", "no-extension")) {
+            upload(attempt, job.id(), name, new byte[] {1, 2, 3});
+        }
     }
 
     @Test

@@ -16,7 +16,7 @@ import type {
 
 const ACTIVE = new Set(["QUEUED", "RUNNING", "RETRY_WAIT", "CANCEL_REQUESTED"]);
 
-export const isActive = (job: Pick<Job, "state">) => ACTIVE.has(job.state);
+export const isActive = (job: Pick<Job, "state">): boolean => ACTIVE.has(job.state);
 
 /** Poll while something is running, slowing down the longer it runs. */
 function backoff(updates: number): number {

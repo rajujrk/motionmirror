@@ -25,8 +25,8 @@ pytestmark = pytest.mark.skipif(shutil.which("docker") is None, reason="needs do
 _containers: dict[str, str] = {}
 
 
-def docker(*args: str) -> str:
-    return subprocess.run(["docker", *args], check=True, capture_output=True, text=True).stdout.strip()
+def docker(*args: str, timeout: float = 60) -> str:
+    return subprocess.run(["docker", *args], check=True, capture_output=True, text=True, timeout=timeout).stdout.strip()
 
 
 @pytest.fixture(scope="module")
@@ -81,22 +81,21 @@ def broker() -> str:
         subprocess.run(["docker", "rm", "-f", name], capture_output=True, check=False)
 
 
-def unacked(container_url: str, queue_name: str) -> int:
-    container = _containers[container_url]
-    rows = json.loads(
-        docker(
-            "exec",
-            container,
-            "rabbitmqctl",
-            "-q",
-            "--formatter",
-            "json",
-            "list_queues",
-            "name",
-            "messages_unacknowledged",
-        )
-    )
-    return next(row["messages_unacknowledged"] for row in rows if row["name"] == queue_name)
+async def unacked(container_url: str, queue_name: str) -> int:
+    """Off the event loop and bounded: this CLI call has been seen to hang indefinitely on a busy test broker."""
+    command = (
+        "exec", _containers[container_url], "rabbitmqctl", "-q", "--timeout", "15", "--formatter", "json",
+        "list_queues", "name", "messages_unacknowledged",
+    )  # fmt: skip
+    for attempt in range(5):
+        try:
+            rows = json.loads(await asyncio.to_thread(docker, *command, timeout=20))
+            return next(row["messages_unacknowledged"] for row in rows if row["name"] == queue_name)
+        except (subprocess.SubprocessError, ValueError):
+            if attempt == 4:
+                raise
+            await asyncio.sleep(2)
+    raise AssertionError("unreachable")
 
 
 async def hold_unacked(url: str, queue_name: str, seconds: float) -> int:
@@ -115,7 +114,7 @@ async def hold_unacked(url: str, queue_name: str, seconds: float) -> int:
         await queue.consume(on_message, no_ack=False)
         await asyncio.wait_for(received.wait(), timeout=10)
         await asyncio.sleep(seconds)
-        return unacked(url, queue_name)
+        return await unacked(url, queue_name)
 
 
 @pytest.mark.asyncio

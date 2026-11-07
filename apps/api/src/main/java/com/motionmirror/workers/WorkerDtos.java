@@ -71,7 +71,7 @@ public final class WorkerDtos {
     public record CompleteRequest(
             @JsonProperty("attempt_id") @NotNull UUID attemptId,
             @JsonProperty("fencing_token") @PositiveOrZero long fencingToken,
-            @NotNull @Valid List<OutputRef> outputs,
+            @NotNull List<@Valid OutputRef> outputs,
             Map<String, Object> result,
             @JsonProperty("effective_settings") Map<String, Object> effectiveSettings) {}
 
@@ -90,7 +90,8 @@ public final class WorkerDtos {
             List<@Pattern(regexp = "^[a-z0-9_.:-]{1,64}$") String> reads,
             List<@Pattern(regexp = "^[a-z0-9_.-]{1,64}$") String> writes) {}
 
-    public record ArtifactWrite(String key, String url) {}
+    /** The URL is signed for exactly this content type, so the worker must send the same one. */
+    public record ArtifactWrite(String key, String url, @JsonProperty("content_type") String contentType) {}
 
     public record ArtifactAccessResponse(Map<String, String> reads, Map<String, ArtifactWrite> writes) {}
 }

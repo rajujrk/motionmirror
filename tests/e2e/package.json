@@ -1,0 +1,14 @@
+{
+  "name": "@motionmirror/e2e",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3"
+  },
+  "type": "module"
+}

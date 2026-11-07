@@ -16,7 +16,6 @@ doctor: ## Report machine, runtime and service health. Changes nothing
 .PHONY: bootstrap
 bootstrap: ## Create .env with generated secrets and render local config. Downloads no models or data
 	@python3 scripts/bootstrap.py
-	@pnpm install --frozen-lockfile=false --silent 2>/dev/null || true
 
 .PHONY: up-mock
 up-mock: bootstrap ## Start the full stack with the mock worker (any CPU machine)
@@ -37,6 +36,29 @@ logs: ## Follow service logs
 destroy-all-local-data: ## DESTRUCTIVE: delete local databases, broker state and stored media. Asks first
 	@read -p "Delete all local databases and media? Type 'delete': " answer; [ "$$answer" = delete ]
 	$(COMPOSE) --profile lite --profile full --profile gpu down -v
+
+.PHONY: contracts
+contracts: ## Regenerate OpenAPI and the TypeScript client from the running API
+	$(COMPOSE) --profile lite exec -T api wget -qO- http://127.0.0.1:8081/v3/api-docs > packages/contracts/openapi.json
+	pnpm --filter @motionmirror/contracts generate
+
+.PHONY: test
+test: test-tools ## Unit and contract tests. Needs no containers or downloaded weights
+	cd apps/api && ./mvnw -q test -Dtest='!*IT'
+	cd services/ml-worker && uv run --extra wan --group dev pytest tests/unit tests/contract -q
+	cd training && uv run --group dev pytest tests -q
+	pnpm --filter @motionmirror/web test
+	pnpm --filter @motionmirror/web typecheck
+	pnpm --filter @motionmirror/web lint
+
+.PHONY: test-integration
+test-integration: ## Real PostgreSQL, RabbitMQ, Redis and storage through Testcontainers
+	cd apps/api && ./mvnw -q test -Dtest='*IT'
+	cd services/ml-worker && uv run --extra wan --group dev pytest tests/integration -q
+
+.PHONY: test-e2e
+test-e2e: ## Browser journey through the running stack. Run make up-mac first
+	pnpm --filter @motionmirror/e2e test
 
 .PHONY: test-tools
 test-tools: ## Unit tests for repository tooling
