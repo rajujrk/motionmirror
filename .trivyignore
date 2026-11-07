@@ -1,0 +1,2 @@
+# Formal, expiring exceptions only. Each needs an owner, a reason and an expiry date, or the scan fails on it.
+# Format: <finding id> exp:<yyyy-mm-dd>, with a comment above saying who owns it and why.

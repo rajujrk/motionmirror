@@ -1,0 +1,39 @@
+# Each alert says what a person should look at. docs/OBSERVABILITY.md explains them.
+groups:
+  - name: motionmirror
+    rules:
+      - alert: ApiDown
+        expr: up{job="api"} == 0
+        for: 2m
+        labels: {severity: page}
+        annotations: {summary: "The API isn't answering. Jobs can't be submitted or leased."}
+      - alert: BrokerDown
+        expr: up{job="rabbitmq"} == 0
+        for: 2m
+        labels: {severity: page}
+        annotations: {summary: "RabbitMQ isn't answering. Events wait in the outbox and nothing is lost yet."}
+      - alert: OutboxBacklog
+        expr: mm_outbox_oldest_seconds > 300
+        for: 5m
+        labels: {severity: page}
+        annotations: {summary: "Events have waited over 5 minutes to reach the broker. Check its connection and permissions."}
+      - alert: JobsWaitingWithNoWorker
+        expr: mm_jobs{state="QUEUED"} > 0 and mm_workers_online == 0
+        for: 10m
+        labels: {severity: page}
+        annotations: {summary: "Jobs are queued and no worker has registered recently. Check the GPU worker."}
+      - alert: LeasesExpiring
+        expr: rate(mm_lease_expired_total[15m]) > 0.01
+        for: 15m
+        labels: {severity: warn}
+        annotations: {summary: "Workers keep losing their leases. Check for crashes, out-of-memory kills and network loss."}
+      - alert: DeadLetterQueueNotEmpty
+        expr: sum(rabbitmq_queue_messages{queue=~"motionmirror\\.dead\\..*"}) > 0
+        for: 10m
+        labels: {severity: warn}
+        annotations: {summary: "Messages are in a dead-letter queue. Inspect them before replaying anything. See docs/MESSAGING.md."}
+      - alert: CacheErrors
+        expr: rate(mm_cache_total{result="error"}[5m]) > 0.1
+        for: 10m
+        labels: {severity: warn}
+        annotations: {summary: "Redis is failing. Reads fall through to PostgreSQL, and new expensive work may be refused."}

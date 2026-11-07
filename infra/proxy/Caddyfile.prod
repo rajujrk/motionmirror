@@ -1,0 +1,38 @@
+# Production routing with automatic certificates. Workers get their own hostname that serves only the worker API, so
+# the browser site never exposes it. /actuator is served by neither.
+{$MM_APP_DOMAIN} {
+	encode gzip
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	handle /auth/admin/* {
+		respond "Not found" 404
+	}
+	handle /auth/* {
+		reverse_proxy keycloak:8080
+	}
+	@backend path /api/* /oauth2/* /login/oauth2/* /logout
+	handle @backend {
+		reverse_proxy api:8081
+	}
+	handle /internal/* {
+		respond "Not found" 404
+	}
+	handle /actuator/* {
+		respond "Not found" 404
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+}
+
+{$MM_WORKER_DOMAIN} {
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	handle /internal/* {
+		reverse_proxy api:8081
+	}
+	handle /auth/realms/motionmirror/protocol/openid-connect/token {
+		reverse_proxy keycloak:8080
+	}
+	handle {
+		respond "Not found" 404
+	}
+}

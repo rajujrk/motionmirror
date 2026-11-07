@@ -1,0 +1,3 @@
+# Scans history as well as the working tree. Generated fixtures hold no secrets, and nothing here allows a real one.
+[extend]
+useDefault = true

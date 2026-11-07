@@ -1,0 +1,155 @@
+# The CPU host in production: proxy, web, API and identity. PostgreSQL, RabbitMQ, Redis and storage are managed services,
+# and GPU workers run elsewhere. See docs/runbooks/CLOUD_GPU_DEPLOYMENT.md. Images are named by digest, never by tag.
+name: motionmirror-prod
+
+x-hardened: &hardened
+  platform: linux/amd64
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: json-file
+    options: {max-size: "50m", max-file: "5"}
+
+services:
+  caddy:
+    <<: *hardened
+    image: caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
+    # The one exception to dropping everything: it must bind 80 and 443 to obtain and serve certificates.
+    cap_add: [NET_BIND_SERVICE]
+    environment:
+      MM_APP_DOMAIN: ${MM_APP_DOMAIN:?}
+      MM_WORKER_DOMAIN: ${MM_WORKER_DOMAIN:?}
+    volumes:
+      - ../proxy/Caddyfile.prod:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    tmpfs: [/tmp]
+    ports: ["80:80", "443:443"]
+    depends_on: [api, web, keycloak]
+
+  api:
+    <<: *hardened
+    image: ${MM_API_IMAGE:?set to the digest from the release}
+    deploy: {resources: {limits: {memory: 2g}}}
+    tmpfs: [/tmp]
+    environment:
+      MM_DEPLOYMENT: production
+      MM_COOKIE_SECURE: "true"
+      MM_OPENAPI_ENABLED: "false"
+      MM_PUBLIC_ORIGIN: https://${MM_APP_DOMAIN:?}
+      MM_DB_URL: ${MM_DB_URL:?}
+      MM_DB_USERNAME: ${MM_DB_USERNAME:?}
+      MM_DB_PASSWORD: ${MM_DB_PASSWORD:?}
+      MM_RABBIT_HOST: ${MM_RABBIT_HOST:?}
+      MM_RABBIT_PORT: ${MM_RABBIT_PORT:-5671}
+      MM_RABBIT_TLS: "true"
+      MM_RABBIT_USERNAME: mm-publisher
+      MM_RABBIT_PUBLISHER_PASSWORD: ${MM_RABBIT_PUBLISHER_PASSWORD:?}
+      MM_RABBIT_CONSUMER_TIMEOUT_MS: ${MM_RABBIT_CONSUMER_TIMEOUT_MS:?must match the broker configuration}
+      MM_REDIS_HOST: ${MM_REDIS_HOST:?}
+      MM_REDIS_PORT: ${MM_REDIS_PORT:-6379}
+      MM_REDIS_TLS: "true"
+      MM_REDIS_USERNAME: mm-api
+      MM_REDIS_PASSWORD: ${MM_REDIS_PASSWORD:?}
+      MM_OIDC_PUBLIC_ISSUER: https://${MM_APP_DOMAIN:?}/auth/realms/motionmirror
+      MM_OIDC_INTERNAL_BASE: http://keycloak:8080/auth/realms/motionmirror
+      MM_WEB_CLIENT_SECRET: ${MM_WEB_CLIENT_SECRET:?}
+      MM_S3_INTERNAL_ENDPOINT: ${MM_S3_ENDPOINT:?}
+      MM_S3_PUBLIC_ENDPOINT: ${MM_S3_ENDPOINT:?}
+      MM_S3_WORKER_ENDPOINT: ${MM_S3_ENDPOINT:?}
+      MM_S3_ACCESS_KEY: ${MM_S3_ACCESS_KEY:?}
+      MM_S3_SECRET_KEY: ${MM_S3_SECRET_KEY:?}
+      MM_S3_BUCKET: ${MM_S3_BUCKET:?}
+      MM_GENERATE_BACKEND: wan-animate
+      MM_PREPROCESS_BACKEND: real-preprocess
+      MM_RETENTION_PROJECT_DAYS: ${MM_RETENTION_PROJECT_DAYS:-30}
+      MM_METRICS_TOKEN: ${MM_METRICS_TOKEN:-}
+      MM_TRACING_ENABLED: ${MM_TRACING_ENABLED:-false}
+      MM_OTLP_TRACES_ENDPOINT: ${MM_OTLP_TRACES_ENDPOINT:-}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8081/actuator/health/liveness"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  web:
+    <<: *hardened
+    image: ${MM_WEB_IMAGE:?set to the digest from the release}
+    deploy: {resources: {limits: {memory: 512m}}}
+    tmpfs: [/tmp, /app/apps/web/.next/cache]
+    environment:
+      MM_S3_PUBLIC_ENDPOINT: ${MM_S3_ENDPOINT:?}
+    depends_on: [api]
+
+  # Uploads are checked here, next to the scanner, so the GPU Pod needn't be running to accept a file.
+  worker-validate:
+    <<: *hardened
+    image: ${MM_WORKER_VALIDATE_IMAGE:?the CPU worker image, by digest}
+    deploy: {resources: {limits: {memory: 1g, pids: 256}}}
+    tmpfs: [/tmp]
+    environment:
+      MM_WORKER_ID: validate-1
+      MM_BACKEND: media-validate
+      MM_API_BASE_URL: http://api:8081
+      MM_OIDC_TOKEN_URL: http://keycloak:8080/auth/realms/motionmirror/protocol/openid-connect/token
+      MM_OIDC_CLIENT_ID: motionmirror-worker-validate
+      MM_OIDC_CLIENT_SECRET: ${MM_WORKER_VALIDATE_CLIENT_SECRET:?}
+      MM_AMQP_URL: amqps://mm-consumer-validate:${MM_RABBIT_CONSUMER_VALIDATE_PASSWORD:?}@${MM_RABBIT_HOST:?}:${MM_RABBIT_PORT:-5671}/motionmirror
+      MM_QUEUES: motionmirror.validate.v1
+      MM_CLAMD_HOST: clamav
+    depends_on: [api, clamav]
+
+  clamav:
+    # Keeps its own definitions fresh, so it writes to its volume. Everything else stays dropped.
+    platform: linux/amd64
+    restart: unless-stopped
+    cap_drop: [ALL]
+    cap_add: [SETUID, SETGID, CHOWN]
+    security_opt: ["no-new-privileges:true"]
+    logging:
+      driver: json-file
+      options: {max-size: "50m", max-file: "5"}
+    image: clamav/clamav:1.5.4@sha256:6d87c712e3391e13c1ba6e05dfb074d4b1ddb5a6834b23bb9da990d2a4ef042a
+    deploy: {resources: {limits: {memory: 3g}}}
+    volumes:
+      - ../clamav/clamd.conf:/etc/clamav/clamd.conf:ro
+      - clamav-data:/var/lib/clamav
+
+  keycloak:
+    # Writes to its own data directory, so this one isn't read-only.
+    platform: linux/amd64
+    restart: unless-stopped
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    logging:
+      driver: json-file
+      options: {max-size: "50m", max-file: "5"}
+    image: quay.io/keycloak/keycloak:26.8.2@sha256:3879c623248408de29a5303178b5816c77e8dfef3890c361f8c0bbeaa979ba3b
+    command: ["start", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: ${MM_KEYCLOAK_DB_URL:?keycloak has its own database and user}
+      KC_DB_USERNAME: ${MM_KEYCLOAK_DB_USERNAME:?}
+      KC_DB_PASSWORD: ${MM_KEYCLOAK_DB_PASSWORD:?}
+      KC_HOSTNAME: https://${MM_APP_DOMAIN:?}/auth
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${MM_KEYCLOAK_ADMIN_USERNAME:?}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${MM_KEYCLOAK_ADMIN_PASSWORD:?}
+      # Keycloak fills the placeholders in the realm file from these at import.
+      MM_PUBLIC_ORIGIN: https://${MM_APP_DOMAIN:?}
+      MM_WEB_CLIENT_SECRET: ${MM_WEB_CLIENT_SECRET:?}
+      MM_WORKER_WAN_CLIENT_SECRET: ${MM_WORKER_WAN_CLIENT_SECRET:?}
+      MM_WORKER_VALIDATE_CLIENT_SECRET: ${MM_WORKER_VALIDATE_CLIENT_SECRET:?}
+    volumes:
+      # From scripts/render_realm.py, which removes the development accounts.
+      - ${MM_REALM_FILE:?run scripts/render_realm.py}:/opt/keycloak/data/import/motionmirror-realm.json:ro
+
+volumes:
+  clamav-data:
+  caddy-data:
+  caddy-config:

@@ -1,0 +1,33 @@
+# Real GPU time costs real money, so this only ever runs when a person starts it and types the authorization.
+name: GPU acceptance
+on:
+  workflow_dispatch:
+    inputs:
+      spend_authorization:
+        description: Type "I authorize GPU spend" to confirm you accept the cost of this run
+        required: true
+      preset:
+        description: Which preset to benchmark
+        type: choice
+        options: [preview, standard]
+        default: preview
+
+permissions:
+  contents: read
+
+jobs:
+  acceptance:
+    if: ${{ inputs.spend_authorization == 'I authorize GPU spend' }}
+    # A runner you registered on your own GPU machine. Hosted runners have no GPU.
+    runs-on: [self-hosted, linux, gpu]
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: make up-gpu
+      - run: make smoke-gpu
+      - run: make benchmark-gpu CLIP=/media/acceptance.mp4 PHOTO=/media/acceptance.png MARK=${{ vars.ACCEPTANCE_MARK }} PRESET=${{ inputs.preset }}
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benchmark
+          path: .data/benchmark/runs/**/benchmark.json
