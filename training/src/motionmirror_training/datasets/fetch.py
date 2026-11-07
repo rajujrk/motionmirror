@@ -72,7 +72,9 @@ def _download_once(
     if done:
         headers["Range"] = f"bytes={done}-"
     with (
-        httpx.Client(follow_redirects=True, timeout=httpx.Timeout(60, read=300), auth=auth) as client,
+        httpx.Client(
+            follow_redirects=True, timeout=httpx.Timeout(60, read=300), auth=auth
+        ) as client,
         client.stream("GET", url, headers=headers) as response,
     ):
         if response.status_code == 416:

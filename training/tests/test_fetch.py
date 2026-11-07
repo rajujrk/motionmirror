@@ -3,6 +3,7 @@ import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -19,9 +20,9 @@ PAYLOAD = bytes(range(256)) * 2000
 
 class _Handler(BaseHTTPRequestHandler):
     fail_after: int | None = None
-    range_requests: list[str] = []
+    range_requests: ClassVar[list[str]] = []
 
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         start = 0
         header = self.headers.get("Range")
         if header:

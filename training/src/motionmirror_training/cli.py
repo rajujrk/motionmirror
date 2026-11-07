@@ -52,7 +52,10 @@ def datasets_fetch(dataset_id: str) -> int:
         print(f"already downloaded: {target}")
         return 0
 
-    print(f"{entry.name}\nlicence: {entry.license_name}\nreview: {entry.review.decision}\n", flush=True)
+    print(
+        f"{entry.name}\nlicence: {entry.license_name}\nreview: {entry.review.decision}\n",
+        flush=True,
+    )
     download_resumable(
         kaggle_url(entry.source_ref),
         target,
