@@ -75,6 +75,12 @@ springdoc:
 motionmirror:
   deployment: ${MM_DEPLOYMENT:local}
   public-origin: ${MM_PUBLIC_ORIGIN:http://localhost:8088}
+  retention:
+    project-days: ${MM_RETENTION_PROJECT_DAYS:0}
+    purge-interval: 60s
+  model:
+    base-id: ${MM_MODEL_ID:Wan-AI/Wan2.2-Animate-14B-Diffusers}
+    base-revision: ${MM_MODEL_REVISION:6f4df10861c758af86ac3c979aacc1bf5c03eff0}
   backends:
     generate: ${MM_GENERATE_BACKEND:mock}
     preprocess: ${MM_PREPROCESS_BACKEND:mock}
@@ -84,6 +90,7 @@ motionmirror:
     client-id: ${MM_WEB_CLIENT_ID:motionmirror-web}
     client-secret: ${MM_WEB_CLIENT_SECRET:}
     worker-audience: motionmirror-internal
+    admin-audience: motionmirror-admin
     worker-backends:
       motionmirror-worker-mock: [mock]
       motionmirror-worker-wan: [wan-animate, real-preprocess]

@@ -3,9 +3,13 @@ package com.motionmirror.assets;
 import com.motionmirror.config.AppProperties;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import java.io.IOException;
 import java.net.URI;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -106,6 +110,28 @@ public class ObjectStorage {
                 .url().toString();
     }
 
+    /** Reachable from the operator's machine, for uploading a trained adapter. */
+    public String presignAdminWrite(String key) {
+        return browserPresigner.presignPutObject(request -> request
+                        .signatureDuration(config.uploadUrlTtl())
+                        .putObjectRequest(put -> put.bucket(config.bucket()).key(key).contentType("application/octet-stream")))
+                .url().toString();
+    }
+
+    /** Hashed here rather than trusted from a request, so a registered hash always describes the stored bytes. */
+    public String sha256(String key) {
+        try (var stream = client.getObject(request -> request.bucket(config.bucket()).key(key))) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[1024 * 1024];
+            for (int read = stream.read(buffer); read >= 0; read = stream.read(buffer)) {
+                digest.update(buffer, 0, read);
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (IOException | NoSuchAlgorithmException error) {
+            throw new IllegalStateException("cannot hash " + key, error);
+        }
+    }
+
     private String presignGet(S3Presigner presigner, String key, Duration ttl, String downloadName) {
         return presigner.presignGetObject(request -> request
                         .signatureDuration(ttl)
@@ -140,6 +166,13 @@ public class ObjectStorage {
 
     public void delete(String key) {
         client.deleteObject(request -> request.bucket(config.bucket()).key(key));
+    }
+
+    /** Removes everything under a prefix, including anything an attempt uploaded but never reported. */
+    public void deletePrefix(String prefix) {
+        client.listObjectsV2Paginator(request -> request.bucket(config.bucket()).prefix(prefix))
+                .contents()
+                .forEach(object -> delete(object.key()));
     }
 
     @PreDestroy

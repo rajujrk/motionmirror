@@ -23,6 +23,19 @@
       ]
     },
     {
+      "name": "operator",
+      "protocol": "openid-connect",
+      "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "false"},
+      "protocolMappers": [
+        {
+          "name": "admin-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {"included.custom.audience": "motionmirror-admin", "access.token.claim": "true", "id.token.claim": "false"}
+        }
+      ]
+    },
+    {
       "name": "roles",
       "protocol": "openid-connect",
       "attributes": {"include.in.token.scope": "false", "display.on.consent.screen": "false"},
@@ -66,6 +79,18 @@
       "webOrigins": ["${MM_PUBLIC_ORIGIN}"],
       "attributes": {"pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "${MM_PUBLIC_ORIGIN}/"},
       "defaultClientScopes": ["profile", "email", "roles"],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "motionmirror-cli",
+      "name": "Operator command line",
+      "enabled": true,
+      "publicClient": true,
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "attributes": {"oauth2.device.authorization.grant.enabled": "true"},
+      "defaultClientScopes": ["profile", "email", "roles", "operator"],
       "optionalClientScopes": []
     },
     {

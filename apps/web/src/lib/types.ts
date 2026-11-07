@@ -21,6 +21,7 @@ export type AssetMedia = {
   audio_streams?: number;
   is_vfr?: boolean;
   needs_trim?: boolean;
+  cuts?: number[];
   warnings?: string[];
 };
 
@@ -82,4 +83,6 @@ export type Capabilities = {
   generateBackend: string;
   preprocessBackend: string;
   generationLabel: "mock" | "real" | "experimental";
+  /** 0 means projects stay until their owner deletes them. */
+  retentionDays: number;
 };

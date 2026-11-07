@@ -82,6 +82,12 @@ public final class WorkerDtos {
             @Size(max = 2000) String detail,
             boolean retryable) {}
 
+    public record AdapterAccessRequest(
+            @JsonProperty("attempt_id") @NotNull UUID attemptId,
+            @JsonProperty("fencing_token") @PositiveOrZero long fencingToken) {}
+
+    public record AdapterAccessResponse(String url, String sha256, double scale) {}
+
     public record JobStatus(String state) {}
 
     public record ArtifactAccessRequest(

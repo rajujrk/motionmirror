@@ -13,7 +13,9 @@ public record AppProperties(
         Oidc oidc,
         Storage storage,
         Limits limits,
-        Jobs jobs) {
+        Jobs jobs,
+        Model model,
+        Retention retention) {
 
     public boolean isProduction() {
         return "production".equals(deployment);
@@ -21,12 +23,19 @@ public record AppProperties(
 
     public record Backends(String generate, String preprocess) {}
 
+    /** The one base model this deployment serves. Adapters trained on anything else are refused. */
+    public record Model(String baseId, String baseRevision) {}
+
+    /** projectDays 0 keeps projects until their owner deletes them. */
+    public record Retention(int projectDays, Duration purgeInterval) {}
+
     public record Oidc(
             String publicIssuer,
             String internalBase,
             String clientId,
             String clientSecret,
             String workerAudience,
+            String adminAudience,
             Map<String, List<String>> workerBackends) {}
 
     public record Storage(

@@ -71,11 +71,12 @@ public class JobSubmissionService {
         limiter.check("submit", user.id(), properties.limits().submissionsPerMinute());
 
         PresetService.Preset preset = presets.requireCurrent("standard", user.isAdmin());
-        JsonNode settings = preset.settings();
+        // Controls are made in the source's orientation, so a landscape clip isn't padded into a portrait canvas.
+        JsonNode settings = presets.resolve(preset, null, isPortrait(source));
         JobRouting.Route route = routing.routeFor(JobKind.PREPROCESS);
         String cacheKey = sha256(String.join("|", source.getChecksumSha256(), selection.id().toString(), route.backendId(),
-                settings.path("processing_fps").asText(), settings.path("mask_expand_pixels").asText(),
-                settings.path("mask_feather_pixels").asText()));
+                settings.path("processing_fps").asText(), settings.path("height").asText(), settings.path("width").asText(),
+                settings.path("mask_expand_pixels").asText()));
         Optional<UUID> cached = jdbc.sql("""
                 SELECT a.job_id FROM preprocessing_artifacts a JOIN generation_jobs j ON j.id = a.job_id
                 WHERE a.cache_key = :key AND j.state = 'SUCCEEDED' AND j.owner_id = :owner
@@ -128,7 +129,7 @@ public class JobSubmissionService {
         }
 
         limiter.check("submit", user.id(), properties.limits().submissionsPerMinute());
-        PresetService.Preset preset = presets.requireCurrent(request.presetId(), user.isAdmin());
+        PresetService.Preset preset = presets.resolveReference(request.presetId(), user.isAdmin());
         JsonNode overrides = request.overridesJson() == null ? null : SettingsValidator.parse(request.overridesJson());
         ObjectNode effective = presets.resolve(preset, overrides, isPortrait(source));
         checkClipLength(request.kind(), preset, effective, source);
@@ -144,12 +145,22 @@ public class JobSubmissionService {
         inputs.put("trim_start_seconds", selection.trimStartSeconds());
         inputs.put("trim_end_seconds", selection.trimEndSeconds());
         inputs.put("preview_seconds", request.kind() == JobKind.PREVIEW ? preset.definition().path("preview_seconds").asInt(5) : null);
+        // A snapshot: promoting or rolling back a preset later doesn't change this job.
+        inputs.put("adapter", adapterSnapshot(preset.definition()));
 
         JobRow job = jobs.submit(user.id(), new JobService.Submission(projectId, request.kind(), preset.configRevision(),
                 overrides == null ? "{}" : overrides.toString(), effective.toString(), Json.write(inputs),
                 request.idempotencyKey(), true));
         audit.user(user, "GENERATION_SUBMITTED", "job", job.id().toString(), Map.of("kind", request.kind().name(), "preset", preset.configRevision()));
         return job;
+    }
+
+    /**
+     * Presets are Jackson 2 trees because of the schema validator, and Json.write is Jackson 3, which would serialize
+     * a foreign node as a bean. Crossing as text keeps the worker's copy identical to the preset's.
+     */
+    static tools.jackson.databind.JsonNode adapterSnapshot(JsonNode definition) {
+        return definition.hasNonNull("adapter") ? Json.read(definition.get("adapter").toString()) : null;
     }
 
     private static boolean isPortrait(AssetEntity source) {

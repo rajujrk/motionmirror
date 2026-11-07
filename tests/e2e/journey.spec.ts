@@ -96,3 +96,37 @@ test("signing out ends the session", async ({ page, request }) => {
   expect(me.status()).toBe(401);
   expect(request).toBeTruthy();
 });
+
+test("deleting a project removes it and its results stay gone after a reload", async ({ page }) => {
+  await signIn(page);
+  const name = `Delete me ${Date.now()}`;
+  await createProject(page, name);
+  const url = page.url();
+  await page.getByRole("button", { name: "Delete project" }).click();
+  await page.getByRole("button", { name: "Delete everything" }).click();
+  await expect(page.getByRole("heading", { name: "Projects" })).toBeVisible();
+  await expect(page.getByRole("link", { name })).toHaveCount(0);
+  await page.goto(url);
+  await expect(page.getByText("This project doesn't exist, or it isn't yours.")).toBeVisible();
+});
+
+test("removing a photo removes the video made from it", async ({ page }) => {
+  await signIn(page);
+  await createProject(page, `Remove photo ${Date.now()}`);
+  await prepareToGenerate(page, files);
+  await generatePreview(page);
+  await expect(page.getByRole("link", { name: "Download MP4" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Delete this result" }).click();
+  await expect(page.getByText("This removes the video and its settings.")).toBeVisible();
+  await page.getByRole("button", { name: "Keep it" }).click();
+  await expect(page.getByRole("link", { name: "Download MP4" })).toBeVisible();
+
+  await page.getByRole("navigation", { name: "Steps" }).getByRole("button", { name: "You" }).click();
+  await page.getByRole("button", { name: "Remove photo", exact: true }).first().click();
+  await page.getByRole("button", { name: "Remove photo and videos" }).click();
+  await expect(page.getByRole("button", { name: "Remove photo", exact: true })).toHaveCount(0);
+
+  await page.reload();
+  await expect(page.getByRole("link", { name: "Download MP4" })).toHaveCount(0);
+});

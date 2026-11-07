@@ -4,6 +4,7 @@ import { useRef } from "react";
 import { Button, Hint, MockTape, RealBadge, Stage, StepHeading } from "@/components/ui";
 import { useAssetUrl, useOutputUrl } from "@/lib/hooks";
 import type { Job } from "@/lib/types";
+import { ConfirmDelete } from "./ConfirmDelete";
 import { JobStatus } from "./JobStatus";
 
 /** The output drives; the source follows it, so they stay in step while comparing. */
@@ -75,7 +76,7 @@ function SettingsDetails({ job }: { job: Job }) {
   );
 }
 
-function JobResult({ job }: { job: Job }) {
+function JobResult({ job, onChanged }: { job: Job; onChanged: () => void }) {
   const output = useOutputUrl(job.state === "SUCCEEDED" ? job.id : undefined, "result.mp4");
   const when = new Date(job.createdAt).toLocaleString();
   return (
@@ -102,17 +103,26 @@ function JobResult({ job }: { job: Job }) {
           <SettingsDetails job={job} />
         </>
       ) : null}
+      {job.state === "SUCCEEDED" || job.state === "FAILED" || job.state === "CANCELLED" ? (
+        <ConfirmDelete
+          path={`/api/v1/jobs/${job.id}`}
+          label="Delete this result"
+          warning="This removes the video and its settings. Your clip and photos stay. It can't be undone."
+          confirmLabel="Delete result"
+          onDeleted={onChanged}
+        />
+      ) : null}
     </li>
   );
 }
 
-export function ResultsStep({ jobs }: { jobs: Job[] }) {
+export function ResultsStep({ jobs, onChanged }: { jobs: Job[]; onChanged: () => void }) {
   return (
     <section>
       <StepHeading title="Results">Newest first. Check hands, feet, spins and the edges around the dancer.</StepHeading>
       <ul className="divide-y divide-rule">
         {jobs.map((job) => (
-          <JobResult key={job.id} job={job} />
+          <JobResult key={job.id} job={job} onChanged={onChanged} />
         ))}
       </ul>
     </section>

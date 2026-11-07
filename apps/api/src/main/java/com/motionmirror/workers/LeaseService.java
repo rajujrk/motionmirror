@@ -167,7 +167,8 @@ public class LeaseService {
     /** Output is attached only after the storage service confirms it exists at the attempt's own prefix. */
     @Transactional
     public JobState complete(UUID jobId, WorkerDtos.CompleteRequest request) {
-        JobRow job = jobs.lock(jobId).orElseThrow(() -> ApiException.notFound("Job"));
+        // A deleted job's worker is told it lost the lease, so it stops instead of retrying a 404.
+        JobRow job = jobs.lock(jobId).orElseThrow(LeaseService::leaseLost);
         Optional<AttemptRow> previous = findAttempt(request.attemptId());
         if (previous.isPresent() && previous.get().state().equals("SUCCEEDED") && previous.get().jobId().equals(jobId)
                 && previous.get().fencingToken() == request.fencingToken()) {
@@ -207,7 +208,7 @@ public class LeaseService {
     /** Spring Boot owns retry policy. The worker reports what happened; this decides what happens next. */
     @Transactional
     public JobState fail(UUID jobId, WorkerDtos.FailRequest request) {
-        JobRow job = jobs.lock(jobId).orElseThrow(() -> ApiException.notFound("Job"));
+        JobRow job = jobs.lock(jobId).orElseThrow(LeaseService::leaseLost);
         AttemptRow attempt = requireCurrent(jobId, request.attemptId(), request.fencingToken());
         finishAttempt(attempt.id(), "FAILED", request.code(), request.detail());
         return applyFailure(job, request.code(), request.detail(), request.retryable());
@@ -255,6 +256,21 @@ public class LeaseService {
             writes.put(name, new WorkerDtos.ArtifactWrite(key, storage.presignWorkerWrite(key, type), type));
         }
         return new WorkerDtos.ArtifactAccessResponse(reads, writes);
+    }
+
+    /** Only the adapter this job's own snapshot names, and only under a current lease. */
+    @Transactional(readOnly = true)
+    public WorkerDtos.AdapterAccessResponse adapterAccess(UUID adapterId, WorkerDtos.AdapterAccessRequest request) {
+        AttemptRow attempt = findAttempt(request.attemptId()).orElseThrow(LeaseService::leaseLost);
+        requireCurrent(attempt.jobId(), request.attemptId(), request.fencingToken());
+        JobRow job = jobs.find(attempt.jobId()).orElseThrow();
+        String named = Json.read(job.inputs()).path("adapter").path("id").asString("");
+        if (!adapterId.toString().equals(named)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "ADAPTER_NOT_IN_JOB", "This job doesn't use that adapter");
+        }
+        var row = jdbc.sql("SELECT artifact_key, sha256, scale FROM model_adapters WHERE id = :id").param("id", adapterId).query().singleRow();
+        return new WorkerDtos.AdapterAccessResponse(storage.presignWorkerRead((String) row.get("artifact_key")),
+                (String) row.get("sha256"), ((Number) row.get("scale")).doubleValue());
     }
 
     public static String attemptPrefix(UUID attemptId) {

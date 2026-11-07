@@ -35,6 +35,7 @@ import org.springframework.security.oauth2.jwt.JwtIssuerValidator;
 import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.core.DelegatingOAuth2TokenValidator;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
@@ -51,6 +52,42 @@ public class SecurityConfig {
 
     public SecurityConfig(AppProperties properties) {
         this.properties = properties;
+    }
+
+    /** Operators use a personal bearer token with the ADMIN role, so CLI actions are audited to a real person. */
+    @Bean
+    @Order(0)
+    SecurityFilterChain operatorChain(HttpSecurity http) throws Exception {
+        return http.securityMatcher(request -> request.getRequestURI().startsWith("/api/v1/admin/")
+                        && String.valueOf(request.getHeader(HttpHeaders.AUTHORIZATION)).startsWith("Bearer "))
+                .authorizeHttpRequests(auth -> auth.anyRequest().hasRole("ADMIN"))
+                .oauth2ResourceServer(server -> server.jwt(jwt -> jwt
+                        .decoder(operatorJwtDecoder())
+                        .jwtAuthenticationConverter(SecurityConfig::operatorAuthentication)))
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .csrf(AbstractHttpConfigurer::disable)
+                .build();
+    }
+
+    private JwtDecoder operatorJwtDecoder() {
+        AppProperties.Oidc oidc = properties.oidc();
+        NimbusJwtDecoder decoder = NimbusJwtDecoder
+                .withJwkSetUri(oidc.internalBase() + "/protocol/openid-connect/certs")
+                .jwsAlgorithm(SignatureAlgorithm.RS256)
+                .build();
+        decoder.setJwtValidator(workerTokenValidator(oidc.publicIssuer(), oidc.adminAudience()));
+        return decoder;
+    }
+
+    public static JwtAuthenticationToken operatorAuthentication(Jwt token) {
+        List<String> roles = token.getClaimAsStringList("roles");
+        Collection<GrantedAuthority> authorities = new ArrayList<>();
+        for (String role : roles == null ? List.<String>of() : roles) {
+            if (role.equals("USER") || role.equals("ADMIN")) {
+                authorities.add(new SimpleGrantedAuthority("ROLE_" + role));
+            }
+        }
+        return new JwtAuthenticationToken(token, authorities, token.getSubject());
     }
 
     @Bean

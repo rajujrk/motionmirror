@@ -20,7 +20,7 @@ public class CapabilitiesController {
     public record WorkerView(String workerId, String backends, String deviceType, String capabilities, Instant lastSeen, boolean online) {}
 
     /** mock, real or experimental. Only CUDA workers can make generation real. */
-    public record Capabilities(String generateBackend, String preprocessBackend, String generationLabel, List<WorkerView> workers) {}
+    public record Capabilities(String generateBackend, String preprocessBackend, String generationLabel, int retentionDays, List<WorkerView> workers) {}
 
     private static final Duration ONLINE_WINDOW = Duration.ofMinutes(2);
 
@@ -55,6 +55,6 @@ public class CapabilitiesController {
                 })
                 .list();
         String generate = properties.backends().generate();
-        return new Capabilities(generate, properties.backends().preprocess(), "mock".equals(generate) ? "mock" : "real", workers);
+        return new Capabilities(generate, properties.backends().preprocess(), "mock".equals(generate) ? "mock" : "real", properties.retention().projectDays(), workers);
     }
 }

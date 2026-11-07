@@ -148,7 +148,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/projects/{projectId}/jobs": {
+    "/api/v1/admin/presets/{id}/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["rollback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/adapters": {
         parameters: {
             query?: never;
             header?: never;
@@ -156,6 +172,102 @@ export interface paths {
             cookie?: never;
         };
         get: operations["list_1"];
+        put?: never;
+        post: operations["register"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/adapters/{id}/stage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["stage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/adapters/{id}/promote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["promote"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/adapters/{id}/evaluation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["evaluation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/adapters/{id}/deprecate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["deprecate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/adapters/upload-target": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["uploadTarget"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{projectId}/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_2"];
         put?: never;
         post?: never;
         delete?: never;
@@ -171,7 +283,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["list_2"];
+        get: operations["list_3"];
         put?: never;
         post?: never;
         delete?: never;
@@ -190,7 +302,7 @@ export interface paths {
         get: operations["get"];
         put?: never;
         post?: never;
-        delete?: never;
+        delete: operations["deleteProject"];
         options?: never;
         head?: never;
         patch?: never;
@@ -203,7 +315,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["list_3"];
+        get: operations["list_4"];
         put?: never;
         post?: never;
         delete?: never;
@@ -238,7 +350,7 @@ export interface paths {
         get: operations["get_1"];
         put?: never;
         post?: never;
-        delete?: never;
+        delete: operations["deleteResult"];
         options?: never;
         head?: never;
         patch?: never;
@@ -318,7 +430,7 @@ export interface paths {
         get: operations["get_2"];
         put?: never;
         post?: never;
-        delete?: never;
+        delete: operations["deleteAsset"];
         options?: never;
         head?: never;
         patch?: never;
@@ -378,9 +490,9 @@ export interface components {
             empty?: boolean;
             null?: boolean;
             float?: boolean;
-            floatingPointNumber?: boolean;
             integralNumber?: boolean;
             missingNode?: boolean;
+            floatingPointNumber?: boolean;
             /** @enum {string} */
             nodeType?: "ARRAY" | "BINARY" | "BOOLEAN" | "MISSING" | "NULL" | "NUMBER" | "OBJECT" | "POJO" | "STRING";
             string?: boolean;
@@ -547,6 +659,59 @@ export interface components {
             /** Format: date-time */
             createdAt?: string;
         };
+        RevisionView: {
+            presetId?: string;
+            /** Format: int32 */
+            revision?: number;
+        };
+        RegisterAdapter: {
+            /** Format: uuid */
+            id: string;
+            name: string;
+            baseModelId: string;
+            baseRevision: string;
+            sha256: string;
+            targetModules: string[];
+            /** Format: int32 */
+            rank?: number;
+            /** Format: double */
+            scale?: number;
+            license: string;
+            licenseScope: string;
+            datasetVersions: components["schemas"]["JsonNode"];
+            trainedOn: components["schemas"]["JsonNode"];
+            evalManifest?: components["schemas"]["JsonNode"];
+        };
+        Adapter: {
+            /** Format: uuid */
+            id?: string;
+            name?: string;
+            baseModelId?: string;
+            baseRevision?: string;
+            artifactKey?: string;
+            sha256?: string;
+            /** Format: int32 */
+            rank?: number;
+            /** Format: double */
+            scale?: number;
+            license?: string;
+            licenseScope?: string;
+            datasetVersions?: components["schemas"]["JsonNode"];
+            trainedOn?: components["schemas"]["JsonNode"];
+            evalManifest?: components["schemas"]["JsonNode"];
+            state?: string;
+            /** Format: date-time */
+            createdAt?: string;
+        };
+        PresetAction: {
+            presetId: string;
+        };
+        UploadTarget: {
+            /** Format: uuid */
+            id?: string;
+            key?: string;
+            url?: string;
+        };
         ProjectPage: {
             items?: components["schemas"]["ProjectView"][];
             /** Format: int32 */
@@ -583,6 +748,8 @@ export interface components {
             generateBackend?: string;
             preprocessBackend?: string;
             generationLabel?: string;
+            /** Format: int32 */
+            retentionDays?: number;
             workers?: components["schemas"]["WorkerView"][];
         };
         WorkerView: {
@@ -618,6 +785,9 @@ export interface components {
         Csrf: {
             headerName?: string;
             token?: string;
+        };
+        AdapterList: {
+            items?: components["schemas"]["Adapter"][];
         };
     };
     responses: never;
@@ -919,7 +1089,193 @@ export interface operations {
             };
         };
     };
+    rollback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["RevisionView"];
+                };
+            };
+        };
+    };
     list_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["AdapterList"];
+                };
+            };
+        };
+    };
+    register: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterAdapter"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["Adapter"];
+                };
+            };
+        };
+    };
+    stage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PresetAction"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["RevisionView"];
+                };
+            };
+        };
+    };
+    promote: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PresetAction"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["RevisionView"];
+                };
+            };
+        };
+    };
+    evaluation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["JsonNode"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["Adapter"];
+                };
+            };
+        };
+    };
+    deprecate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["Adapter"];
+                };
+            };
+        };
+    };
+    uploadTarget: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["UploadTarget"];
+                };
+            };
+        };
+    };
+    list_2: {
         parameters: {
             query?: {
                 page?: number;
@@ -944,7 +1300,7 @@ export interface operations {
             };
         };
     };
-    list_2: {
+    list_3: {
         parameters: {
             query?: never;
             header?: never;
@@ -988,7 +1344,27 @@ export interface operations {
             };
         };
     };
-    list_3: {
+    deleteProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_4: {
         parameters: {
             query?: never;
             header?: never;
@@ -1047,6 +1423,26 @@ export interface operations {
                 content: {
                     "*/*": components["schemas"]["JobView"];
                 };
+            };
+        };
+    };
+    deleteResult: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
@@ -1154,6 +1550,26 @@ export interface operations {
                 content: {
                     "*/*": components["schemas"]["AssetView"];
                 };
+            };
+        };
+    };
+    deleteAsset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

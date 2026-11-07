@@ -68,3 +68,6 @@ target/
 runs/
 reports/
 benchmarks/out/
+
+# TypeScript build state
+*.tsbuildinfo

@@ -63,25 +63,47 @@ public class PresetService {
             Map<String, Object> parsed = new Yaml().load(stream);
             JsonNode definition = MAPPER.valueToTree(parsed);
             validator.requireValid(definition.get("settings"));
-            String id = definition.get("id").asText();
-            int revision = definition.get("revision").asInt();
-            int inserted = jdbc.sql("""
-                    INSERT INTO presets (id, revision, display_name, backend_id, definition)
-                    VALUES (:id, :revision, :name, 'configured', CAST(:definition AS jsonb))
-                    ON CONFLICT DO NOTHING
-                    """)
-                    .param("id", id)
-                    .param("revision", revision)
-                    .param("name", definition.get("display_name").asText())
-                    .param("definition", definition.toString())
-                    .update();
-            jdbc.sql("""
-                    INSERT INTO preset_heads (id, current_revision) VALUES (:id, :revision)
-                    ON CONFLICT (id) DO NOTHING
-                    """).param("id", id).param("revision", revision).update();
-            if (inserted > 0) {
-                log.info("seeded preset {}@{}", id, revision);
+            seedDefinition(definition);
+        }
+    }
+
+    /**
+     * Revisions are immutable and running jobs point at them, so a file that changes an existing revision stops
+     * startup rather than being ignored. A new revision becomes the default unless an adapter currently holds that
+     * place: dropping an adapter should be a decision, not a side effect of a deploy.
+     */
+    public void seedDefinition(JsonNode definition) {
+        String id = definition.get("id").asText();
+        int revision = definition.get("revision").asInt();
+        int inserted = jdbc.sql("""
+                INSERT INTO presets (id, revision, display_name, backend_id, definition)
+                VALUES (:id, :revision, :name, 'configured', CAST(:definition AS jsonb))
+                ON CONFLICT DO NOTHING
+                """)
+                .param("id", id)
+                .param("revision", revision)
+                .param("name", definition.get("display_name").asText())
+                .param("definition", definition.toString())
+                .update();
+        if (inserted == 0) {
+            boolean same = jdbc.sql("SELECT definition = CAST(:definition AS jsonb) FROM presets WHERE id = :id AND revision = :revision")
+                    .param("definition", definition.toString()).param("id", id).param("revision", revision)
+                    .query(Boolean.class).single();
+            if (!same) {
+                throw new IllegalStateException("preset " + id + "@" + revision + " differs from what is stored. Give the file a new revision");
             }
+            return;
+        }
+        log.info("seeded preset {}@{}", id, revision);
+        int moved = jdbc.sql("""
+                INSERT INTO preset_heads (id, current_revision) VALUES (:id, :revision)
+                ON CONFLICT (id) DO UPDATE SET current_revision = EXCLUDED.current_revision, updated_at = now()
+                WHERE preset_heads.current_revision < EXCLUDED.current_revision
+                  AND NOT EXISTS (SELECT 1 FROM presets p WHERE p.id = preset_heads.id
+                      AND p.revision = preset_heads.current_revision AND p.adapter_id IS NOT NULL)
+                """).param("id", id).param("revision", revision).update();
+        if (moved == 0) {
+            log.warn("preset {}@{} was added but isn't the default. Check the current default", id, revision);
         }
     }
 
@@ -103,6 +125,33 @@ public class PresetService {
         return listCurrent(admin).stream()
                 .filter(preset -> preset.id().equals(id))
                 .findFirst()
+                .orElseThrow(() -> ApiException.badRequest("UNKNOWN_PRESET", "Unknown preset"));
+    }
+
+    /** Accepts "standard" for the current default or "standard@3" for an exact revision. Staged ones need ADMIN. */
+    public Preset resolveReference(String reference, boolean admin) {
+        int separator = reference.indexOf('@');
+        if (separator < 0) {
+            return requireCurrent(reference, admin);
+        }
+        String id = reference.substring(0, separator);
+        int revision;
+        try {
+            revision = Integer.parseInt(reference.substring(separator + 1));
+        } catch (NumberFormatException invalid) {
+            throw ApiException.badRequest("UNKNOWN_PRESET", "Unknown preset");
+        }
+        return jdbc.sql("""
+                SELECT p.id, p.revision, p.display_name, p.backend_id, p.definition::text AS definition, p.visibility,
+                       (h.current_revision = p.revision) AS is_default
+                FROM presets p JOIN preset_heads h ON h.id = p.id
+                WHERE p.id = :id AND p.revision = :revision AND (p.visibility = 'PUBLIC' OR :admin)
+                """)
+                .param("id", id).param("revision", revision).param("admin", admin)
+                .query((row, index) -> new Preset(row.getString("id"), row.getInt("revision"), row.getString("display_name"),
+                        row.getString("backend_id"), SettingsValidator.parse(row.getString("definition")),
+                        row.getString("visibility"), row.getBoolean("is_default")))
+                .optional()
                 .orElseThrow(() -> ApiException.badRequest("UNKNOWN_PRESET", "Unknown preset"));
     }
 

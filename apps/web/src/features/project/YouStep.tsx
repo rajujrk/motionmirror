@@ -6,6 +6,7 @@ import { Button, ErrorNote, Hint, StepHeading } from "@/components/ui";
 import { api, ApiError } from "@/lib/api";
 import { useAssetUrl } from "@/lib/hooks";
 import type { AppearanceProfile, Asset } from "@/lib/types";
+import { ConfirmDelete } from "./ConfirmDelete";
 import { FilePicker } from "./FilePicker";
 
 const VIEW_LABELS: { value: string; label: string }[] = [
@@ -119,6 +120,13 @@ export function YouStep({
                   ) : null}
                 </>
               ) : null}
+              <ConfirmDelete
+                path={`/api/v1/assets/${asset.id}`}
+                label="Remove photo"
+                warning="This removes the photo and any videos made from it. It can't be undone."
+                confirmLabel="Remove photo and videos"
+                onDeleted={onChanged}
+              />
             </li>
           ))}
         </ul>

@@ -96,6 +96,11 @@ public class WorkerController {
         return leases.artifactAccess(id, request);
     }
 
+    @PostMapping("/adapters/{id}/artifact-access")
+    public WorkerDtos.AdapterAccessResponse adapterAccess(@PathVariable UUID id, @Valid @RequestBody WorkerDtos.AdapterAccessRequest request) {
+        return leases.adapterAccess(id, request);
+    }
+
     private Set<String> allowedBackends(Jwt token) {
         List<String> backends = properties.oidc().workerBackends().get(clientId(token));
         if (backends == null) {

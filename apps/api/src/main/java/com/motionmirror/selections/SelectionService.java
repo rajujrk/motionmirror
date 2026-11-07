@@ -2,6 +2,7 @@ package com.motionmirror.selections;
 
 import com.motionmirror.assets.AssetEntity;
 import com.motionmirror.assets.AssetService;
+import com.motionmirror.config.AppProperties;
 import com.motionmirror.identity.CurrentUser;
 import com.motionmirror.projects.ProjectService;
 import com.motionmirror.shared.ApiException;
@@ -31,19 +32,22 @@ public class SelectionService {
     private final JdbcClient jdbc;
     private final ProjectService projects;
     private final AssetService assets;
+    private final AppProperties properties;
 
-    public SelectionService(JdbcClient jdbc, ProjectService projects, AssetService assets) {
+    public SelectionService(JdbcClient jdbc, ProjectService projects, AssetService assets, AppProperties properties) {
         this.jdbc = jdbc;
         this.projects = projects;
         this.assets = assets;
+        this.properties = properties;
     }
 
     @Transactional
     public Selection create(CurrentUser user, UUID projectId, NewSelection request) {
         projects.requireOwned(user, projectId);
-        assets.requireUsable(user, projectId, request.sourceAssetId(), AssetEntity.DRIVING_VIDEO);
+        AssetEntity source = assets.requireUsable(user, projectId, request.sourceAssetId(), AssetEntity.DRIVING_VIDEO);
         validateAnnotations(request.annotations());
         validateTrim(request);
+        validateAgainstClip(request, source);
 
         // Row lock on the asset serializes revision numbers for one source video.
         jdbc.sql("SELECT id FROM assets WHERE id = :id FOR UPDATE").param("id", request.sourceAssetId()).query(UUID.class).single();
@@ -89,6 +93,29 @@ public class SelectionService {
         Double end = request.trimEndSeconds();
         if (start != null && end != null && end <= start) {
             throw ApiException.badRequest("INVALID_TRIM", "The trim end must be after its start");
+        }
+    }
+
+    /** The selected range must fit the limit and be one continuous shot, so tracking never crosses a cut. */
+    private void validateAgainstClip(NewSelection request, AssetEntity source) {
+        if (source.getMedia() == null) {
+            return;
+        }
+        JsonNode media = Json.read(source.getMedia());
+        double duration = media.path("duration_seconds").asDouble(0);
+        double start = request.trimStartSeconds() == null ? 0 : request.trimStartSeconds();
+        double end = request.trimEndSeconds() == null ? duration : request.trimEndSeconds();
+        int limit = properties.limits().maxSourceSeconds();
+        if (end - start > limit) {
+            throw ApiException.badRequest("TRIM_REQUIRED", "Trim the clip to " + limit + " seconds or less");
+        }
+        for (JsonNode cut : media.path("cuts")) {
+            double at = cut.asDouble();
+            if (at > start && at < end) {
+                throw ApiException.badRequest("MULTIPLE_SHOTS",
+                        "This part of the clip has a cut at " + String.format(java.util.Locale.ROOT, "%.2f", at)
+                                + " seconds. Trim to one continuous shot");
+            }
         }
     }
 

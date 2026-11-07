@@ -67,6 +67,7 @@ public class ProjectEntity {
 
     public void markDeleted() {
         status = "DELETED";
+        name = "Deleted project";
         updatedAt = Instant.now();
     }
 }

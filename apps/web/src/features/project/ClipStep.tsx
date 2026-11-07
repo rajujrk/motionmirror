@@ -4,6 +4,7 @@ import { ErrorNote, Hint, Stage, StepHeading } from "@/components/ui";
 import { formatTimecode } from "@/features/selection/coords";
 import { useAssetUrl } from "@/lib/hooks";
 import type { Asset } from "@/lib/types";
+import { ConfirmDelete } from "./ConfirmDelete";
 import { FilePicker } from "./FilePicker";
 
 export function ClipStep({ projectId, source, onChanged }: { projectId: string; source?: Asset; onChanged: () => void }) {
@@ -53,7 +54,21 @@ export function ClipStep({ projectId, source, onChanged }: { projectId: string; 
             </div>
           </dl>
           {media?.needs_trim ? <ErrorNote>This clip is longer than 30 seconds. Choose a trim in the next step.</ErrorNote> : null}
+          {media?.cuts?.length ? (
+            <ErrorNote>
+              This clip has {media.cuts.length === 1 ? "a cut" : `${media.cuts.length} cuts`} at{" "}
+              {media.cuts.map((cut) => formatTimecode(cut)).join(", ")}. Tracking can&apos;t cross a cut, so trim to one
+              continuous shot in the next step.
+            </ErrorNote>
+          ) : null}
           {media?.is_vfr ? <Hint>This clip has a variable frame rate. Its timing is kept from the original timestamps.</Hint> : null}
+          <ConfirmDelete
+            path={`/api/v1/assets/${source.id}`}
+            label="Remove clip"
+            warning="This removes the clip, its masks, your dancer selection and every video made from it. It can't be undone."
+            confirmLabel="Remove clip and results"
+            onDeleted={onChanged}
+          />
         </div>
       ) : null}
 

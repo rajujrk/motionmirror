@@ -1,11 +1,12 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { ErrorNote } from "@/components/ui";
 import { AppHeader } from "@/features/project/AppHeader";
 import { ClipStep } from "@/features/project/ClipStep";
+import { ConfirmDelete } from "@/features/project/ConfirmDelete";
 import { DancerStep } from "@/features/project/DancerStep";
 import { GenerateStep } from "@/features/project/GenerateStep";
 import { MaskStep } from "@/features/project/MaskStep";
@@ -14,7 +15,7 @@ import { StepRail } from "@/features/project/StepRail";
 import { useAuthGuard } from "@/features/project/useAuthGuard";
 import { YouStep } from "@/features/project/YouStep";
 import { deriveSteps, deriveWorkflow, firstOpenStep, type StepId } from "@/features/project/workflow";
-import { useAssets, useJobs, useProfiles, useProject, useSelections } from "@/lib/hooks";
+import { useAssets, useCapabilities, useJobs, useProfiles, useProject, useSelections } from "@/lib/hooks";
 
 export default function ProjectPage() {
   const { id } = useParams<{ id: string }>();
@@ -25,7 +26,15 @@ export default function ProjectPage() {
   const profiles = useProfiles(id);
   const jobs = useJobs(id);
   const client = useQueryClient();
+  const router = useRouter();
   const [chosen, setChosen] = useState<StepId>();
+  const capabilities = useCapabilities();
+  const retentionDays = capabilities.data?.retentionDays ?? 0;
+
+  const projectDeleted = async () => {
+    await client.invalidateQueries({ queryKey: ["projects"] });
+    router.push("/projects");
+  };
 
   const state = useMemo(
     () => deriveWorkflow(assets.data ?? [], selections.data ?? [], profiles.data ?? [], jobs.data ?? []),
@@ -63,6 +72,20 @@ export default function ProjectPage() {
           </h1>
           {project.error ? <ErrorNote>This project doesn&apos;t exist, or it isn&apos;t yours.</ErrorNote> : null}
           {current ? <StepRail steps={steps} current={current} onSelect={setChosen} /> : null}
+          <div className="mt-8 border-t border-rule pt-3 text-sm">
+            <ConfirmDelete
+              path={`/api/v1/projects/${id}`}
+              label="Delete project"
+              warning="This removes the clip, photos, masks and every result. It can't be undone."
+              confirmLabel="Delete everything"
+              onDeleted={() => void projectDeleted()}
+            />
+            <p className="mt-2 text-ink-soft">
+              {retentionDays > 0
+                ? `Projects are deleted ${retentionDays} days after you last use them.`
+                : "Projects stay until you delete them."}
+            </p>
+          </div>
         </aside>
         <main className="min-w-0">
           {current === "clip" ? <ClipStep projectId={id} source={state.source} onChanged={() => void refresh()} /> : null}
@@ -96,7 +119,7 @@ export default function ProjectPage() {
               }}
             />
           ) : null}
-          {current === "results" ? <ResultsStep jobs={state.generations} /> : null}
+          {current === "results" ? <ResultsStep jobs={state.generations} onChanged={() => void refresh()} /> : null}
         </main>
       </div>
     </>

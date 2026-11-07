@@ -148,8 +148,14 @@ public class AssetEntity {
         this.updatedAt = Instant.now();
     }
 
+    /** The row stays so its id can't be reused and audit events still resolve. File names and details don't. */
     public void markDeleted() {
         this.status = DELETED;
+        this.displayName = "deleted";
+        this.media = null;
+        this.checksumSha256 = null;
+        this.detectedType = null;
+        this.rejectionDetail = null;
         this.updatedAt = Instant.now();
     }
 }

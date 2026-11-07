@@ -25,6 +25,7 @@ export function MaskStep({
 }) {
   const requestKey = useId().replaceAll(":", "");
   const preview = useOutputUrl(job?.state === "SUCCEEDED" ? job.id : undefined, "preview.mp4");
+  const track = job?.effectiveSettings.track as { warnings?: string[] } | undefined;
   const start = useMutation({
     mutationFn: () =>
       api<Job>(`/api/v1/projects/${projectId}/preprocessing-jobs`, {
@@ -57,6 +58,7 @@ export function MaskStep({
           ) : (
             <RealBadge />
           )}
+          {track?.warnings?.map((warning) => <ErrorNote key={warning}>{warning}</ErrorNote>)}
           <Stage>
             {preview.data ? (
               <video src={preview.data} controls playsInline className="mx-auto max-h-[56vh] w-full object-contain" aria-label="Mask preview" />
