@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.motionmirror.identity.CurrentUser;
 import com.motionmirror.shared.Json;
 import com.motionmirror.support.IntegrationTest;
 import java.io.ByteArrayOutputStream;
@@ -16,8 +17,14 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,6 +41,7 @@ class UploadIT {
     @Autowired MockMvc mvc;
     @Autowired ObjectStorage storage;
     @Autowired JdbcClient jdbc;
+    @Autowired AssetService assets;
 
     String projectId;
 
@@ -131,6 +139,49 @@ class UploadIT {
         // Completing again does not pull the new bytes in either.
         postJson("/api/v1/assets/" + assetId + "/complete", "alice", "", 200);
         assertThat(storage.head(objectKey).orElseThrow().etag()).isEqualTo(etag);
+    }
+
+    @Test
+    void aCompletionThatFailedAfterCopyingTheFileCanBeCompletedAgain() throws Exception {
+        byte[] content = new byte[1024];
+        JsonNode intent = intent(content.length);
+        assertThat(upload(intent, content, null)).isBetween(200, 204);
+        UUID assetId = UUID.fromString(intent.path("assetId").asString());
+        Map<String, Object> row = jdbc.sql("SELECT owner_id, upload_key FROM assets WHERE id = :id").param("id", assetId)
+                .query().singleRow();
+        // What an earlier call leaves behind when its transaction rolls back: storage moved on, the database didn't.
+        String immutableKey = "assets/" + row.get("owner_id") + "/" + projectId + "/" + assetId + "/original";
+        storage.copy((String) row.get("upload_key"), immutableKey);
+        storage.delete((String) row.get("upload_key"));
+
+        JsonNode asset = postJson("/api/v1/assets/" + assetId + "/complete", "alice", "", 200);
+
+        assertThat(asset.path("status").asString()).isEqualTo("QUARANTINED");
+        assertThat(validationJobs(assetId)).isOne();
+    }
+
+    @Test
+    void twoCompletionsAtOnceBothSucceedAndStartOneCheck() throws Exception {
+        byte[] content = new byte[1024];
+        JsonNode intent = intent(content.length);
+        assertThat(upload(intent, content, null)).isBetween(200, 204);
+        UUID assetId = UUID.fromString(intent.path("assetId").asString());
+        UUID owner = jdbc.sql("SELECT owner_id FROM assets WHERE id = :id").param("id", assetId).query(UUID.class).single();
+        CurrentUser alice = new CurrentUser(owner, Set.of("ROLE_USER"));
+
+        try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
+            List<Future<AssetEntity>> results = pool.invokeAll(List.<Callable<AssetEntity>>of(
+                    () -> assets.complete(alice, assetId), () -> assets.complete(alice, assetId)));
+            for (Future<AssetEntity> result : results) {
+                assertThat(result.get().getStatus()).isEqualTo(AssetEntity.QUARANTINED);
+            }
+        }
+        assertThat(validationJobs(assetId)).isOne();
+    }
+
+    private long validationJobs(UUID assetId) {
+        return jdbc.sql("SELECT count(*) FROM generation_jobs WHERE kind = 'VALIDATE' AND idempotency_key = :key")
+                .param("key", "validate:" + assetId).query(Long.class).single();
     }
 
     @Test

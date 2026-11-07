@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
 import shutil
 import sys
 import time
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
@@ -105,7 +107,8 @@ class AttemptRunner:
     async def _run(self, lease: Lease, workspace: Path) -> str:
         request = lease.request
         try:
-            input_paths = await self._fetch_inputs(lease, workspace)
+            async with self._holding_lease(lease):
+                input_paths = await self._fetch_inputs(lease, workspace)
         except httpx.HTTPError as error:
             return await self._storage_failure(lease, "fetching inputs", error)
         except AdapterIntegrityError as error:
@@ -136,8 +139,7 @@ class AttemptRunner:
         Retries in place with fresh URLs, since an old one may have expired. Heartbeats continue throughout, because
         a slow upload from a remote GPU can easily outlast the lease.
         """
-        heartbeats = asyncio.create_task(self._keep_lease(lease))
-        try:
+        async with self._holding_lease(lease):
             for delay in (*self._upload_retry_delays, None):
                 try:
                     return await self._upload_outputs(lease, outputs)
@@ -147,6 +149,13 @@ class AttemptRunner:
                     log.warning("upload failed for job %s, retrying: %s", lease.job_id, type(error).__name__)
                     await asyncio.sleep(delay)
             raise AssertionError("unreachable")
+
+    @contextlib.asynccontextmanager
+    async def _holding_lease(self, lease: Lease) -> AsyncIterator[None]:
+        """Heartbeats for transfers, which can outlast the lease on a remote worker. The child has its own loop."""
+        heartbeats = asyncio.create_task(self._keep_lease(lease))
+        try:
+            yield
         finally:
             heartbeats.cancel()
             await asyncio.gather(heartbeats, return_exceptions=True)
@@ -181,13 +190,14 @@ class AttemptRunner:
         """Checked on every use, even from the cache, so tampered weights never get near a model load."""
         cache = adapter_cache_dir(self._scratch_dir)
         cached = cache / f"{adapter['sha256']}.safetensors"
-        if cached.exists() and sha256_file(cached) == adapter["sha256"]:
+        # Hashing blocks while it reads the whole file, so it runs in a thread to keep heartbeats going.
+        if cached.exists() and await asyncio.to_thread(sha256_file, cached) == adapter["sha256"]:
             os.utime(cached)
             return cached
         access = await self._api.adapter_access(lease, adapter["id"])
         target = workspace / "inputs" / "adapter.safetensors"
         await self._api.download(access["url"], target)
-        if sha256_file(target) != adapter["sha256"]:
+        if await asyncio.to_thread(sha256_file, target) != adapter["sha256"]:
             raise AdapterIntegrityError("The trained adapter doesn't match its recorded hash")
         cache.mkdir(parents=True, exist_ok=True)
         os.replace(target, cached)
@@ -288,10 +298,10 @@ class AttemptRunner:
                 {
                     "name": output["name"],
                     "key": write["key"],
-                    "sha256": sha256_file(path),
+                    "sha256": await asyncio.to_thread(sha256_file, path),
                     "size_bytes": path.stat().st_size,
                     "content_type": write["content_type"],
-                    "media": _output_media(path, write["content_type"]),
+                    "media": await asyncio.to_thread(_output_media, path, write["content_type"]),
                 }
             )
         return references

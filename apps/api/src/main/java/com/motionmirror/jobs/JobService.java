@@ -7,7 +7,6 @@ import com.motionmirror.shared.ApiException;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,13 +47,13 @@ public class JobService {
         }
         JobRouting.Route route = routing.routeFor(submission.kind());
         UUID id = UUID.randomUUID();
-        try {
-            jobs.insert(new JobStore.NewJob(id, submission.projectId(), ownerId, submission.kind(), route.backendId(),
-                    route.routingKey(), submission.configRevision(), submission.requestedSettings(),
-                    submission.effectiveSettings(), submission.inputs(), submission.idempotencyKey(),
-                    properties.jobs().maxAttempts(), submission.consentConfirmed()));
-        } catch (DuplicateKeyException raced) {
-            return jobs.findByIdempotencyKey(ownerId, submission.idempotencyKey()).orElseThrow(() -> raced);
+        boolean inserted = jobs.insert(new JobStore.NewJob(id, submission.projectId(), ownerId, submission.kind(),
+                route.backendId(), route.routingKey(), submission.configRevision(), submission.requestedSettings(),
+                submission.effectiveSettings(), submission.inputs(), submission.idempotencyKey(),
+                properties.jobs().maxAttempts(), submission.consentConfirmed()));
+        if (!inserted) {
+            // A concurrent request with the same key committed first. The insert waited for it, so it's visible now.
+            return jobs.findByIdempotencyKey(ownerId, submission.idempotencyKey()).orElseThrow();
         }
         UUID eventId = outbox.enqueue(id, 1, submission.kind(), route.backendId(), submission.configRevision(), route.routingKey());
         jobs.addEvent(id, "QUEUED", Map.of("event_id", eventId.toString(), "dispatch_generation", 1));
@@ -77,6 +76,10 @@ public class JobService {
     public JobRow cancel(CurrentUser user, UUID jobId) {
         requireOwned(user, jobId);
         JobRow job = jobs.lock(jobId).orElseThrow(() -> ApiException.notFound("Job"));
+        if (job.kind() == JobKind.VALIDATE) {
+            // The file's checks aren't the user's to stop. Cancelling one would leave the file unusable for good.
+            throw ApiException.conflict("JOB_NOT_CANCELLABLE", "File checks can't be cancelled");
+        }
         switch (job.state()) {
             case QUEUED, RETRY_WAIT -> {
                 jobs.moveTo(jobId, JobState.CANCELLED, "CANCELLED", "Cancelled before it started", null);

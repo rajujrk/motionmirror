@@ -3,9 +3,11 @@ package com.motionmirror.jobs;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.motionmirror.assets.AssetEntity;
 import com.motionmirror.assets.ObjectStorage;
 import com.motionmirror.identity.CurrentUser;
 import com.motionmirror.shared.ApiException;
+import com.motionmirror.shared.Json;
 import com.motionmirror.support.Fixtures;
 import com.motionmirror.support.IntegrationTest;
 import com.motionmirror.workers.LeaseService;
@@ -110,6 +112,52 @@ class LeaseIT {
         acquired(job, "first");
         LeaseService.AcquireResult second = acquire(job, "second");
         assertThat(second).isEqualTo(new LeaseService.Refused(LeaseService.DUPLICATE, "an attempt is already running"));
+    }
+
+    @Test
+    void aRetriedAcquireWhoseResponseWasLostGetsItsOwnAttemptBack() {
+        JobRow job = job();
+        UUID event = UUID.randomUUID();
+        UUID request = UUID.randomUUID();
+        var first = ((LeaseService.Acquired) leases.acquire(job.id(), event, 1, "w", request, MOCK)).response();
+        var retried = ((LeaseService.Acquired) leases.acquire(job.id(), event, 1, "w", request, MOCK)).response();
+        assertThat(retried.attemptId()).isEqualTo(first.attemptId());
+        assertThat(retried.fencingToken()).isEqualTo(first.fencingToken());
+        assertThat(jobs.find(job.id()).orElseThrow().attemptCount()).isEqualTo(1);
+    }
+
+    @Test
+    void aSecondRequestEvenFromTheSameWorkerIsStillADuplicate() {
+        JobRow job = job();
+        UUID event = UUID.randomUUID();
+        leases.acquire(job.id(), event, 1, "w", UUID.randomUUID(), MOCK);
+        assertThat(leases.acquire(job.id(), event, 1, "w", UUID.randomUUID(), MOCK))
+                .isEqualTo(new LeaseService.Refused(LeaseService.DUPLICATE, "an attempt is already running"));
+    }
+
+    @Test
+    void aValidationThatRunsOutOfAttemptsAtAcquireRejectsItsFile() {
+        JobRow job = fixtures.queuedJob(owner, project, JobKind.VALIDATE);
+        Set<String> validator = Set.of("media-validate");
+        var first = ((LeaseService.Acquired) leases.acquire(job.id(), UUID.randomUUID(), 1, "v", validator)).response();
+        jdbc.sql("UPDATE generation_jobs SET max_attempts = 1 WHERE id = :id").param("id", job.id()).update();
+        expireLease(first.attemptId());
+
+        leases.acquire(job.id(), UUID.randomUUID(), 1, "v", validator);
+
+        assertThat(state(job.id())).isEqualTo(JobState.FAILED);
+        UUID asset = UUID.fromString(Json.read(job.inputs()).get("asset_id").asString());
+        assertThat(jdbc.sql("SELECT status FROM assets WHERE id = :id").param("id", asset).query(String.class).single())
+                .isEqualTo(AssetEntity.REJECTED);
+    }
+
+    @Test
+    void fileChecksCantBeCancelled() {
+        JobRow job = fixtures.queuedJob(owner, project, JobKind.VALIDATE);
+        CurrentUser user = new CurrentUser(owner, Set.of("ROLE_USER"));
+        assertThatThrownBy(() -> jobService.cancel(user, job.id()))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code()).isEqualTo("JOB_NOT_CANCELLABLE"));
+        assertThat(state(job.id())).isEqualTo(JobState.QUEUED);
     }
 
     @Test

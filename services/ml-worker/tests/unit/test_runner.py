@@ -493,6 +493,53 @@ async def test_heartbeats_continue_during_a_slow_upload(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_heartbeats_continue_while_inputs_download(tmp_path: Path) -> None:
+    """A remote worker fetching a long clip and an adapter can take longer than the lease."""
+
+    class SlowDownload(FakeApi):
+        async def download(self, url: str, target: Path) -> None:
+            before = self.heartbeats
+            await asyncio.sleep(0.3)
+            self.during_download = self.heartbeats - before
+            await super().download(url, target)
+
+    api = SlowDownload()
+    assert await runner(api, tmp_path, child(tmp_path, FINISHED_CHILD), heartbeat=0.05).run(LEASE) == "SUCCEEDED"
+    assert api.during_download >= 2
+
+
+@pytest.mark.asyncio
+async def test_hashing_a_large_result_doesnt_stop_the_heartbeats(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Hashing blocks for as long as a multi-gigabyte file takes to read, so it runs off the event loop."""
+    from motionmirror.worker import runner as runner_module
+
+    real_hash = runner_module.sha256_file
+
+    def slow_hash(path: Path) -> str:
+        time.sleep(0.3)
+        return real_hash(path)
+
+    monkeypatch.setattr(runner_module, "sha256_file", slow_hash)
+
+    class Counting(FakeApi):
+        async def upload(self, url: str, path: Path, content_type: str) -> None:
+            self.at_upload = self.heartbeats
+            await super().upload(url, path, content_type)
+
+        async def complete(
+            self, lease: Lease, outputs: list[dict[str, Any]], result: dict[str, Any], effective: dict[str, Any]
+        ) -> str:
+            self.while_hashing = self.heartbeats - self.at_upload
+            return await super().complete(lease, outputs, result, effective)
+
+    api = Counting()
+    assert await runner(api, tmp_path, child(tmp_path, FINISHED_CHILD), heartbeat=0.05).run(LEASE) == "SUCCEEDED"
+    assert api.while_hashing >= 2
+
+
+@pytest.mark.asyncio
 async def test_a_heartbeat_outage_during_upload_doesnt_stop_it(tmp_path: Path) -> None:
     class NoControlPlane(FakeApi):
         async def heartbeat(self, lease: Lease) -> bool:

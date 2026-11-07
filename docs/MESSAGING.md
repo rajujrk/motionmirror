@@ -38,7 +38,7 @@ Negative permission tests live in `apps/api/src/test/java/com/motionmirror/jobs/
 2. `OutboxPublisher` reserves rows in a short transaction with `FOR UPDATE SKIP LOCKED`, then publishes holding no database lock. It uses persistent delivery, confirms and mandatory returns.
 3. It marks an event published only after a confirm with no return. Otherwise the event goes back to pending with backoff.
 4. The worker validates the envelope and calls `POST /internal/v1/jobs/{id}/acquire`.
-5. `acquire` locks the job row and returns a lease, or `409` with a disposition:
+5. `acquire` locks the job row and returns a lease, or `409` with a disposition. The request carries an `acquire_id` the worker picks for each delivery and keeps across its own HTTP retries. If a response is lost after the attempt was created, the retry gets that same lease back. Another delivery, even to the same worker, has a new id and is a duplicate.
 
 | Disposition | Meaning | Worker action |
 | --- | --- | --- |

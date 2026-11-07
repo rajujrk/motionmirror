@@ -29,7 +29,8 @@ public final class WorkerDtos {
     public record AcquireRequest(
             @JsonProperty("event_id") @NotNull UUID eventId,
             @JsonProperty("dispatch_generation") @Positive int dispatchGeneration,
-            @JsonProperty("worker_id") @NotBlank @Size(max = 128) String workerId) {}
+            @JsonProperty("worker_id") @NotBlank @Size(max = 128) String workerId,
+            @JsonProperty("acquire_id") UUID acquireId) {}
 
     public record AcquireResponse(
             @JsonProperty("attempt_id") UUID attemptId,

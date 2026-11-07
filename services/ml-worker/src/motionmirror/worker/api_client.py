@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -81,7 +82,8 @@ class ApiClient:
         return await self._post(path, body)
 
     async def _post(self, path: str, body: dict[str, Any]) -> httpx.Response:
-        """Bounded retries for transient faults only. Every endpoint here is safe to repeat."""
+        """Bounded retries for transient faults only. Every endpoint here is safe to repeat, acquire because it
+        carries a request id the API matches to the attempt a lost response created."""
         delay = 0.5
         refreshed = False
         for attempt in range(self.RETRIES):
@@ -111,10 +113,14 @@ class ApiClient:
         response.raise_for_status()
 
     async def acquire(self, job_id: str, event_id: str, generation: int, worker_id: str) -> Lease | Disposition:
-        response = await self._post(
-            f"/internal/v1/jobs/{job_id}/acquire",
-            {"event_id": event_id, "dispatch_generation": generation, "worker_id": worker_id},
-        )
+        # New for each delivery, the same across this call's own retries. A repeat delivery is still a duplicate.
+        body = {
+            "event_id": event_id,
+            "dispatch_generation": generation,
+            "worker_id": worker_id,
+            "acquire_id": str(uuid.uuid4()),
+        }
+        response = await self._post(f"/internal/v1/jobs/{job_id}/acquire", body)
         if response.status_code == 409:
             body = response.json()
             return Disposition(body.get("disposition", "OBSOLETE"), body.get("detail", ""))

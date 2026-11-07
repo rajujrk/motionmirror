@@ -60,7 +60,7 @@ public class WorkerController {
     public ResponseEntity<?> acquire(@AuthenticationPrincipal Jwt token, @PathVariable UUID id,
             @Valid @RequestBody WorkerDtos.AcquireRequest request) {
         LeaseService.AcquireResult result = leases.acquire(id, request.eventId(), request.dispatchGeneration(),
-                request.workerId(), allowedBackends(token));
+                request.workerId(), request.acquireId(), allowedBackends(token));
         return switch (result) {
             case LeaseService.Acquired acquired -> ResponseEntity.ok(acquired.response());
             case LeaseService.Refused refused -> ResponseEntity.status(HttpStatus.CONFLICT)

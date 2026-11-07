@@ -41,7 +41,8 @@ public class LeaseService {
 
     public record Refused(String disposition, String detail) implements AcquireResult {}
 
-    public record AttemptRow(UUID id, UUID jobId, int attemptNo, long fencingToken, String state, Instant leaseExpiresAt, String workerId) {}
+    public record AttemptRow(UUID id, UUID jobId, int attemptNo, long fencingToken, String state, Instant leaseExpiresAt, String workerId,
+            UUID acquireId) {}
 
     private static final String PROBE_TYPE = "text/plain";
     private static final Set<String> INFRASTRUCTURE_FAILURES = Set.of("STORAGE_ERROR", "SCANNER_UNAVAILABLE");
@@ -63,7 +64,13 @@ public class LeaseService {
     }
 
     @Transactional
+    /** Without an acquire id, a repeat is never matched to the attempt it may already have created. */
     public AcquireResult acquire(UUID jobId, UUID eventId, int generation, String workerId, Set<String> clientBackends) {
+        return acquire(jobId, eventId, generation, workerId, null, clientBackends);
+    }
+
+    public AcquireResult acquire(UUID jobId, UUID eventId, int generation, String workerId, UUID acquireId,
+            Set<String> clientBackends) {
         Optional<JobRow> found = jobs.lock(jobId);
         if (found.isEmpty()) {
             return new Refused(OBSOLETE, "unknown job");
@@ -88,6 +95,12 @@ public class LeaseService {
         if (job.state() == JobState.RUNNING) {
             Optional<AttemptRow> active = activeAttempt(jobId);
             if (active.isPresent() && active.get().leaseExpiresAt().isAfter(Instant.now())) {
+                AttemptRow running = active.get();
+                if (acquireId != null && acquireId.equals(running.acquireId()) && workerId.equals(running.workerId())) {
+                    // The same request retried after its response was lost. Hand back the attempt it created.
+                    return new Acquired(new WorkerDtos.AcquireResponse(running.id(), running.attemptNo(),
+                            running.fencingToken(), running.leaseExpiresAt(), requestFor(job)));
+                }
                 return refuse(job, eventId, workerId, DUPLICATE, "an attempt is already running");
             }
             active.ifPresent(attempt -> finishAttempt(attempt.id(), "EXPIRED", "LEASE_EXPIRED", "Replaced after its lease expired"));
@@ -95,6 +108,8 @@ public class LeaseService {
         if (job.attemptCount() >= job.maxAttempts()) {
             jobs.moveTo(jobId, JobState.FAILED, "ATTEMPTS_EXHAUSTED", "No attempts remain", null);
             jobs.addEvent(jobId, "FAILED", Map.of("code", "ATTEMPTS_EXHAUSTED"));
+            // Every way into FAILED runs the handler, or a failed validation would leave its file checking forever.
+            handlers.onFailed(job, "ATTEMPTS_EXHAUSTED", "No attempts remain");
             return refuse(job, eventId, workerId, OBSOLETE, "no attempts remain");
         }
 
@@ -103,12 +118,13 @@ public class LeaseService {
         UUID attemptId = UUID.randomUUID();
         Instant expires = Instant.now().plus(properties.jobs().leaseTtl());
         jdbc.sql("""
-                INSERT INTO job_attempts (id, job_id, attempt_no, worker_id, fencing_token, dispatch_generation, event_id, state, lease_expires_at)
-                VALUES (:id, :job, :no, :worker, :fencing, :generation, :event, 'ACTIVE', :expires)
+                INSERT INTO job_attempts (id, job_id, attempt_no, worker_id, fencing_token, dispatch_generation, event_id, state,
+                    lease_expires_at, acquire_id)
+                VALUES (:id, :job, :no, :worker, :fencing, :generation, :event, 'ACTIVE', :expires, :acquireId)
                 """)
                 .param("id", attemptId).param("job", jobId).param("no", attemptNo).param("worker", workerId)
                 .param("fencing", fencing).param("generation", generation).param("event", eventId)
-                .param("expires", time(expires)).update();
+                .param("expires", time(expires)).param("acquireId", acquireId).update();
         jobs.startAttempt(jobId, fencing, attemptNo);
         recordDelivery(jobId, eventId, workerId, "ACQUIRED");
         jobs.addEvent(jobId, "ATTEMPT_STARTED", Map.of("attempt_no", attemptNo, "worker_id", workerId));
@@ -334,19 +350,20 @@ public class LeaseService {
     }
 
     private Optional<AttemptRow> activeAttempt(UUID jobId) {
-        return jdbc.sql("SELECT id, job_id, attempt_no, fencing_token, state, lease_expires_at, worker_id FROM job_attempts WHERE job_id = :job AND state = 'ACTIVE'")
+        return jdbc.sql("SELECT id, job_id, attempt_no, fencing_token, state, lease_expires_at, worker_id, acquire_id FROM job_attempts WHERE job_id = :job AND state = 'ACTIVE'")
                 .param("job", jobId).query(LeaseService::mapAttempt).optional();
     }
 
     private Optional<AttemptRow> findAttempt(UUID attemptId) {
-        return jdbc.sql("SELECT id, job_id, attempt_no, fencing_token, state, lease_expires_at, worker_id FROM job_attempts WHERE id = :id")
+        return jdbc.sql("SELECT id, job_id, attempt_no, fencing_token, state, lease_expires_at, worker_id, acquire_id FROM job_attempts WHERE id = :id")
                 .param("id", attemptId).query(LeaseService::mapAttempt).optional();
     }
 
     private static AttemptRow mapAttempt(java.sql.ResultSet row, int index) throws java.sql.SQLException {
         return new AttemptRow(row.getObject("id", UUID.class), row.getObject("job_id", UUID.class), row.getInt("attempt_no"),
                 row.getLong("fencing_token"), row.getString("state"),
-                row.getObject("lease_expires_at", OffsetDateTime.class).toInstant(), row.getString("worker_id"));
+                row.getObject("lease_expires_at", OffsetDateTime.class).toInstant(), row.getString("worker_id"),
+                row.getObject("acquire_id", UUID.class));
     }
 
     void finishAttempt(UUID attemptId, String state, String code, String detail) {

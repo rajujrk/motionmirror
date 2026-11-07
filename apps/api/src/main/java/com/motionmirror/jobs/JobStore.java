@@ -25,12 +25,17 @@ public class JobStore {
             String configRevision, String requestedSettings, String effectiveSettings, String inputs,
             String idempotencyKey, int maxAttempts, boolean consentConfirmed) {}
 
-    public void insert(NewJob job) {
-        jdbc.sql("""
+    /**
+     * False when a job with the same idempotency key already exists. A plain insert would raise instead, and on
+     * PostgreSQL that aborts the whole transaction, so the existing job could no longer be read in it.
+     */
+    public boolean insert(NewJob job) {
+        return jdbc.sql("""
                 INSERT INTO generation_jobs (id, project_id, owner_id, kind, state, backend_id, routing_key, config_revision,
                     requested_settings, effective_settings, inputs, idempotency_key, max_attempts, consent_confirmed)
                 VALUES (:id, :projectId, :ownerId, :kind, 'QUEUED', :backendId, :routingKey, :configRevision,
                     CAST(:requested AS jsonb), CAST(:effective AS jsonb), CAST(:inputs AS jsonb), :idempotencyKey, :maxAttempts, :consent)
+                ON CONFLICT (owner_id, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
                 """)
                 .param("id", job.id()).param("projectId", job.projectId()).param("ownerId", job.ownerId())
                 .param("kind", job.kind().name()).param("backendId", job.backendId())
@@ -38,7 +43,7 @@ public class JobStore {
                 .param("requested", job.requestedSettings()).param("effective", job.effectiveSettings())
                 .param("inputs", job.inputs()).param("idempotencyKey", job.idempotencyKey())
                 .param("maxAttempts", job.maxAttempts()).param("consent", job.consentConfirmed())
-                .update();
+                .update() == 1;
     }
 
     public Optional<JobRow> find(UUID id) {

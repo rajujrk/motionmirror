@@ -3,6 +3,7 @@ package com.motionmirror.jobs;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import com.motionmirror.assets.AssetEntity;
 import com.motionmirror.config.AppProperties;
 import com.motionmirror.shared.Json;
 import com.motionmirror.support.Fixtures;
@@ -17,8 +18,12 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -108,6 +113,37 @@ class OutboxIT {
 
         assertThat(jobs.find(jobId[0])).isEmpty();
         assertThat(jdbc.sql("SELECT count(*) FROM outbox_events WHERE job_id = :job").param("job", jobId[0]).query(Long.class).single()).isZero();
+    }
+
+    @Test
+    void twoSubmissionsRacingWithOneKeyBothGetTheSameJob() throws Exception {
+        UUID asset = fixtures.readyAsset(owner, project, AssetEntity.DRIVING_VIDEO);
+        var submission = new JobService.Submission(project, JobKind.PREVIEW, "preview@1", "{}", "{}",
+                Json.write(Map.of("asset_id", asset.toString(), "source_asset_id", asset.toString())), "double-click", true);
+        CountDownLatch inserted = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CompletableFuture<JobRow> first = CompletableFuture.supplyAsync(() -> transactions.execute(status -> {
+            JobRow job = jobService.submit(owner, submission);
+            inserted.countDown();
+            awaitQuietly(release);
+            return job;
+        }));
+        assertThat(inserted.await(10, TimeUnit.SECONDS)).isTrue();
+        CompletableFuture<JobRow> second = CompletableFuture.supplyAsync(() -> jobService.submit(owner, submission));
+        Thread.sleep(500); // the second has missed the uncommitted job and now waits on it
+        release.countDown();
+
+        assertThat(second.get(20, TimeUnit.SECONDS).id()).isEqualTo(first.get(20, TimeUnit.SECONDS).id());
+        assertThat(jdbc.sql("SELECT count(*) FROM generation_jobs WHERE owner_id = :owner AND idempotency_key = 'double-click'")
+                .param("owner", owner).query(Long.class).single()).isOne();
+    }
+
+    private static void awaitQuietly(CountDownLatch latch) {
+        try {
+            latch.await(20, TimeUnit.SECONDS);
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     @Test

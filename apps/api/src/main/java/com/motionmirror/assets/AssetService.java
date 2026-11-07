@@ -12,6 +12,7 @@ import com.motionmirror.shared.Json;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -101,24 +102,39 @@ public class AssetService {
 
     @Transactional
     public AssetEntity complete(CurrentUser user, UUID assetId) {
-        AssetEntity asset = requireOwned(user, assetId);
+        AssetEntity asset = assets.lockByIdAndOwnerId(assetId, user.id())
+                .filter(found -> !AssetEntity.DELETED.equals(found.getStatus()))
+                .orElseThrow(() -> ApiException.notFound("Asset"));
         if (!AssetEntity.PENDING_UPLOAD.equals(asset.getStatus())) {
             return asset;
         }
         if (asset.getUploadExpiresAt().isBefore(Instant.now().minus(properties.storage().uploadUrlTtl()))) {
             throw ApiException.conflict("UPLOAD_EXPIRED", "This upload expired. Start it again");
         }
-        ObjectStorage.ObjectInfo uploaded = storage.head(asset.getUploadKey())
-                .orElseThrow(() -> ApiException.conflict("UPLOAD_NOT_FOUND", "The upload hasn't arrived yet"));
-        if (uploaded.sizeBytes() != asset.getDeclaredBytes()) {
+        String immutableKey = "assets/" + asset.getOwnerId() + "/" + asset.getProjectId() + "/" + asset.getId() + "/original";
+        Optional<ObjectStorage.ObjectInfo> uploaded = storage.head(asset.getUploadKey());
+        if (uploaded.isEmpty()) {
+            // Storage changes don't roll back with the database. If an earlier call copied the file and then failed,
+            // the copy is already in the server-only key, which no upload URL can write.
+            Optional<ObjectStorage.ObjectInfo> copied = storage.head(immutableKey)
+                    .filter(info -> info.sizeBytes() == asset.getDeclaredBytes());
+            if (copied.isEmpty()) {
+                throw ApiException.conflict("UPLOAD_NOT_FOUND", "The upload hasn't arrived yet");
+            }
+            return quarantineAndCheck(user, asset, immutableKey, copied.get().sizeBytes());
+        }
+        if (uploaded.get().sizeBytes() != asset.getDeclaredBytes()) {
             asset.reject("SIZE_MISMATCH", "The uploaded file isn't the size that was declared");
             storage.delete(asset.getUploadKey());
             return assets.save(asset);
         }
-        String immutableKey = "assets/" + asset.getOwnerId() + "/" + asset.getProjectId() + "/" + asset.getId() + "/original";
         storage.copy(asset.getUploadKey(), immutableKey);
         storage.delete(asset.getUploadKey());
-        asset.quarantine(immutableKey, uploaded.sizeBytes());
+        return quarantineAndCheck(user, asset, immutableKey, uploaded.get().sizeBytes());
+    }
+
+    private AssetEntity quarantineAndCheck(CurrentUser user, AssetEntity asset, String immutableKey, long sizeBytes) {
+        asset.quarantine(immutableKey, sizeBytes);
         assets.save(asset);
 
         // Bounded checks run in the worker, isolated from the API. The asset stays unusable until they pass.
@@ -129,7 +145,7 @@ public class AssetService {
                 "max_seconds", properties.limits().maxSourceSeconds());
         jobs.submit(asset.getOwnerId(), new JobService.Submission(asset.getProjectId(), JobKind.VALIDATE, "validate@1",
                 "{}", "{}", Json.write(inputs), "validate:" + asset.getId(), true));
-        audit.user(user, "ASSET_UPLOADED", "asset", assetId.toString(), Map.of("bytes", uploaded.sizeBytes()));
+        audit.user(user, "ASSET_UPLOADED", "asset", asset.getId().toString(), Map.of("bytes", sizeBytes));
         return asset;
     }
 
