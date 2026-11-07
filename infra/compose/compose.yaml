@@ -38,10 +38,11 @@ services:
       - "127.0.0.1:${MM_HOST_RABBIT_PORT}:5672"
       - "127.0.0.1:${MM_HOST_RABBIT_MGMT_PORT}:15672"
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
-      interval: 10s
-      timeout: 10s
-      retries: 30
+      # A TCP check on purpose: a rabbitmq CLI run during startup can race the server for its cookie file and crash it.
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 5672"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
 
   redis:
     <<: *platform

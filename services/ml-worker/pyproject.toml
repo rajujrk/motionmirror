@@ -45,6 +45,8 @@ packages = ["src/motionmirror"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
 markers = [
     "requires_wan: needs the wan extra (torch, diffusers); no real weights",
     "requires_mps: needs an Apple Silicon GPU",
@@ -53,7 +55,7 @@ markers = [
 ]
 
 [tool.ruff]
-line-length = 100
+line-length = 120
 target-version = "py312"
 
 [tool.ruff.lint]

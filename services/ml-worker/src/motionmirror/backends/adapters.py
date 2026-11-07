@@ -39,16 +39,10 @@ def _count_layers(state_dict: dict[str, Tensor]) -> int:
 
 
 def _count_attached(transformer: Any, adapter_name: str) -> int:
-    return sum(
-        1
-        for _, module in transformer.named_modules()
-        if adapter_name in getattr(module, "lora_A", {})
-    )
+    return sum(1 for _, module in transformer.named_modules() if adapter_name in getattr(module, "lora_A", {}))
 
 
-def load_adapter(
-    pipe: Any, state_dict: dict[str, Tensor], adapter_name: str, scale: float
-) -> LoadedAdapter:
+def load_adapter(pipe: Any, state_dict: dict[str, Tensor], adapter_name: str, scale: float) -> LoadedAdapter:
     expected = _count_layers(state_dict)
     if expected == 0:
         raise AdapterLoadError("adapter file contains no LoRA layers")

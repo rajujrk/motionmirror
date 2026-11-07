@@ -62,9 +62,7 @@ def _build_tiny_tokenizer() -> PreTrainedTokenizerFast:
     words = ["<pad>", "</s>", "<unk>", "a", "person", "dancing", "blurry", "sharp", "and", "bright"]
     backend = Tokenizer(models.WordLevel({w: i for i, w in enumerate(words)}, unk_token="<unk>"))
     backend.pre_tokenizer = pre_tokenizers.Whitespace()
-    return PreTrainedTokenizerFast(
-        tokenizer_object=backend, pad_token="<pad>", eos_token="</s>", unk_token="<unk>"
-    )
+    return PreTrainedTokenizerFast(tokenizer_object=backend, pad_token="<pad>", eos_token="</s>", unk_token="<unk>")
 
 
 def build_tiny_pipeline(device: str = "cpu") -> WanAnimatePipeline:

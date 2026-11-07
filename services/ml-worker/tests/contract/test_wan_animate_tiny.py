@@ -47,9 +47,7 @@ def test_size_not_divisible_by_16_is_rejected(pipe: Any) -> None:
         run(pipe, height=24, width=16)
 
 
-def test_segment_length_not_4n_plus_1_is_floored(
-    pipe: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_segment_length_not_4n_plus_1_is_floored(pipe: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     seen: list[int] = []
     original = pipe.prepare_latents
 
@@ -75,9 +73,7 @@ def test_segment_length_not_4n_plus_1_is_floored(
         (13, 13, 5),
     ],
 )
-def test_output_has_exactly_one_frame_per_pose_frame(
-    pipe: Any, num_frames: int, segment: int, prev: int
-) -> None:
+def test_output_has_exactly_one_frame_per_pose_frame(pipe: Any, num_frames: int, segment: int, prev: int) -> None:
     video = run(
         pipe,
         num_frames=num_frames,
@@ -102,9 +98,7 @@ def test_segment_shorter_than_twice_the_conditioning_frames_fails(
 
 
 @pytest.mark.parametrize(("num_frames", "prev"), [(1, 1), (5, 5), (3, 5)])
-def test_clip_no_longer_than_the_conditioning_frames_fails(
-    pipe: Any, num_frames: int, prev: int
-) -> None:
+def test_clip_no_longer_than_the_conditioning_frames_fails(pipe: Any, num_frames: int, prev: int) -> None:
     """Pins an upstream limit: the validator must require num_frames > prev."""
     with pytest.raises(ValueError, match="non-empty"):
         run(
@@ -115,9 +109,7 @@ def test_clip_no_longer_than_the_conditioning_frames_fails(
         )
 
 
-def test_white_mask_means_generate_and_black_means_preserve(
-    pipe: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_white_mask_means_generate_and_black_means_preserve(pipe: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """Inside the pipeline a known region is 1, so a white input must become 0 (unknown)."""
     captured: list[torch.Tensor] = []
     original = pipe.prepare_prev_segment_cond_latents
