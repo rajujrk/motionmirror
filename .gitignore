@@ -1,0 +1,70 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+!**/.env.example
+*.pem
+*.key
+
+# Tooling state
+.claude-flow/
+.remember/
+.swarm/
+ruvector.db
+.claude/
+.DS_Store
+._*
+
+# Datasets, weights, media (never committed)
+.data/
+.models/
+.scratch/
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.gguf
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.avi
+!tests/fixtures/**/*.mp4
+!tests/fixtures/**/*.mov
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+.coverage
+htmlcov/
+
+# JavaScript
+node_modules/
+.next/
+.turbo/
+.pnpm-store/
+coverage/
+playwright-report/
+test-results/
+apps/web/next-env.d.ts
+
+# Java
+target/
+*.class
+.gradle/
+
+# Editors
+.idea/
+.vscode/
+*.iml
+
+# Run outputs
+runs/
+reports/
+benchmarks/out/
