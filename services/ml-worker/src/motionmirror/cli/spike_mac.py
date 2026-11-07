@@ -373,7 +373,8 @@ def main() -> int:
             command = [sys.executable, "-m", "motionmirror.cli.spike_mac", "--only", stage]
             command += ["--clip-dir", str(args.clip_dir), "--out", str(args.out), "--frames", str(args.frames)]
             command += ["--gguf-seconds", str(args.gguf_seconds)]
-            subprocess.run(command, check=False)
+            # An argument list with no shell, built from the operator's own command line.
+            subprocess.run(command, check=False)  # nosemgrep: dangerous-subprocess-use-tainted-env-args
         return 0
 
     import torch

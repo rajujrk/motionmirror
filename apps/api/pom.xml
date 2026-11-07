@@ -28,6 +28,8 @@
 	</scm>
 	<properties>
 		<java.version>21</java.version>
+		<!-- Ahead of Spring Boot's managed version, for CVE-2026-63337, 69219, 69220 and 75516. -->
+		<rabbit-amqp-client.version>5.34.0</rabbit-amqp-client.version>
 		<springdoc.version>3.2.0</springdoc.version>
 		<awssdk.version>2.57.11</awssdk.version>
 		<json-schema-validator.version>1.5.9</json-schema-validator.version>

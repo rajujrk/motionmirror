@@ -112,11 +112,18 @@ services:
     logging:
       driver: json-file
       options: {max-size: "50m", max-file: "5"}
-    image: clamav/clamav:1.5.4@sha256:6d87c712e3391e13c1ba6e05dfb074d4b1ddb5a6834b23bb9da990d2a4ef042a
+    image: clamav/clamav-debian:1.5.4@sha256:c21aa18cc0a358678255a3dfb343a4555b58f71b97d7b869df8fdf7ea0a5b4b1
     deploy: {resources: {limits: {memory: 3g}}}
     volumes:
       - ../clamav/clamd.conf:/etc/clamav/clamd.conf:ro
       - clamav-data:/var/lib/clamav
+    # The protocol workers use. First start downloads definitions, which can take several minutes.
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/3310 && printf 'zPING\\0' >&3 && grep -aq PONG <&3"]
+      interval: 15s
+      timeout: 5s
+      retries: 40
+      start_period: 5m
 
   keycloak:
     # Writes to its own data directory, so this one isn't read-only.

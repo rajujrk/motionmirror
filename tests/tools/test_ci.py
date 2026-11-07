@@ -69,3 +69,11 @@ def test_every_document_the_brief_requires_exists() -> None:
         "TESTING BENCHMARKS"
     ).split()
     assert not [name for name in required if not (ROOT / "docs" / f"{name}.md").exists()]
+
+
+def test_no_workflow_puts_an_expression_into_shell_text() -> None:
+    """A ${{ }} in a run step is pasted in as code before the shell sees it. Values go through env instead."""
+    for name, text in WORKFLOWS.items():
+        for job in yaml.safe_load(text)["jobs"].values():
+            for step in job["steps"]:
+                assert "${{" not in step.get("run", ""), f"{name}: {step['run']}"

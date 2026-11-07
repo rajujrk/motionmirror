@@ -22,4 +22,6 @@ ENV PATH=/app/training/.venv/bin:$PATH \
     MM_DATASET_ROOT=/datasets \
     MM_PRESETS_DIR=/app/configs/presets \
     HF_HUB_OFFLINE=1
+RUN useradd --create-home --uid 10001 trainer
+USER trainer
 ENTRYPOINT ["mm-train"]

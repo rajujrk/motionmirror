@@ -25,7 +25,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: make up-gpu
       - run: make smoke-gpu
-      - run: make benchmark-gpu CLIP=/media/acceptance.mp4 PHOTO=/media/acceptance.png MARK=${{ vars.ACCEPTANCE_MARK }} PRESET=${{ inputs.preset }}
+      # Through the environment, never into the command text, so an input can't become shell code.
+      - run: make benchmark-gpu CLIP=/media/acceptance.mp4 PHOTO=/media/acceptance.png MARK="$ACCEPTANCE_MARK" PRESET="$PRESET"
+        env:
+          ACCEPTANCE_MARK: ${{ vars.ACCEPTANCE_MARK }}
+          PRESET: ${{ inputs.preset }}
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

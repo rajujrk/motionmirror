@@ -130,3 +130,15 @@ test("removing a photo removes the video made from it", async ({ page }) => {
   await page.reload();
   await expect(page.getByRole("link", { name: "Download MP4" })).toHaveCount(0);
 });
+
+test("an upload that a virus scanner flags is refused with a clear explanation", async ({ page }) => {
+  test.skip(!process.env.MM_E2E_CLAMAV, "needs the security profile: MM_CLAMD_HOST=clamav");
+  // The standard harmless antivirus test string, split so scanners don't flag this source file.
+  const eicar = "X5O!P%@AP[4\\PZX54(P^)7CC)7}$" + "EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*";
+  await signIn(page);
+  await createProject(page, `Scanner ${Date.now()}`);
+  await page.getByLabel("I have permission to use this video").check();
+  await page.getByLabel("Choose a clip").setInputFiles({ name: "clip.mp4", mimeType: "video/mp4", buffer: Buffer.from(eicar) });
+  await expect(page.getByText("This file failed the security scan")).toBeVisible();
+  await expect(page.getByText("EICAR")).toHaveCount(0);
+});

@@ -68,7 +68,8 @@ observability-up: bootstrap ## Metrics, traces and dashboards on the mock stack.
 scan: ## Secrets, code and dependency scans with pinned tools. Exceptions live in .trivyignore and .semgrepignore
 	docker run --rm -v "$(CURDIR):/repo:ro" zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f git --no-banner --redact --config /repo/.gitleaks.toml /repo
 	docker run --rm -v "$(CURDIR):/repo:ro" -w /repo semgrep/semgrep:1.184.0@sha256:cc1b68266f267878b39739373ea9985b9a78e5d64497dd875c8de100b22695ed semgrep scan --metrics=off --error --severity=ERROR --config p/security-audit --config p/secrets --config p/owasp-top-ten .
-	docker run --rm -v "$(CURDIR):/repo:ro" -v mm-trivy-cache:/root/.cache aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb fs --scanners vuln,misconfig --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed --ignorefile /repo/.trivyignore --skip-dirs .data --skip-dirs .models --skip-dirs node_modules --skip-dirs .venv /repo
+	cd apps/api && ./mvnw -q -B dependency:go-offline
+	docker run --rm -v "$(CURDIR):/repo:ro" -v mm-trivy-cache:/root/.cache -v "$(HOME)/.m2:/root/.m2:ro" aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb fs --offline-scan --scanners vuln,misconfig --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed --ignorefile /repo/.trivyignore --skip-dirs .data --skip-dirs .models --skip-dirs node_modules --skip-dirs .venv /repo
 
 .PHONY: test-security
 test-security: scan ## Scanners plus authorization and upload abuse tests

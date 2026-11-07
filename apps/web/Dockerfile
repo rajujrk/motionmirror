@@ -13,6 +13,8 @@ RUN pnpm --filter @motionmirror/web build
 
 FROM node:26.13-alpine
 ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3000 NEXT_TELEMETRY_DISABLED=1
+# The server needs Node alone. Package managers aren't used at run time, and removing them removes their dependencies.
+RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 RUN addgroup -S web && adduser -S web -G web
 WORKDIR /app
 COPY --from=build /repo/apps/web/.next/standalone ./
