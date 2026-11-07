@@ -225,7 +225,8 @@ services:
       - clamav-data:/var/lib/clamav
     # The protocol workers use. First start downloads definitions, which can take several minutes.
     healthcheck:
-      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/3310 && printf 'zPING\\0' >&3 && grep -aq PONG <&3"]
+      # bash, because /dev/tcp doesn't exist in this image's sh. head, because clamd keeps the connection open.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/3310 && printf 'zPING\\0' >&3 && head -c 4 <&3 | grep -aq PONG"]
       interval: 15s
       timeout: 5s
       retries: 40
