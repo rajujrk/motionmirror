@@ -60,13 +60,39 @@ test-integration: ## Real PostgreSQL, RabbitMQ, Redis and storage through Testco
 test-e2e: ## Browser journey through the running stack. Run make up-mac first
 	pnpm --filter @motionmirror/e2e test
 
+.PHONY: observability-up
+observability-up: bootstrap ## Metrics, traces and dashboards on the mock stack. Grafana: localhost:53000
+	MM_TRACING_ENABLED=true MM_WORKER_OTLP_ENDPOINT=http://tempo:4318/v1/traces $(COMPOSE) --profile full up -d --build --wait
+
+.PHONY: scan
+scan: ## Secrets, code and dependency scans with pinned tools. Exceptions live in .trivyignore and .semgrepignore
+	docker run --rm -v "$(CURDIR):/repo:ro" zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f git --no-banner --redact --config /repo/.gitleaks.toml /repo
+	docker run --rm -v "$(CURDIR):/repo:ro" -w /repo semgrep/semgrep:1.184.0@sha256:cc1b68266f267878b39739373ea9985b9a78e5d64497dd875c8de100b22695ed semgrep scan --metrics=off --error --severity=ERROR --config p/security-audit --config p/secrets --config p/owasp-top-ten .
+	docker run --rm -v "$(CURDIR):/repo:ro" -v mm-trivy-cache:/root/.cache aquasec/trivy:0.76.2@sha256:8f6bb947dbc528902e11f2f5be52f7b519f6a39d5d148f41166f2040499768fb fs --scanners vuln,misconfig --severity HIGH,CRITICAL --exit-code 1 --ignore-unfixed --ignorefile /repo/.trivyignore --skip-dirs .data --skip-dirs .models --skip-dirs node_modules --skip-dirs .venv /repo
+
+.PHONY: test-security
+test-security: scan ## Scanners plus authorization and upload abuse tests
+	cd apps/api && ./mvnw -q test -Dtest='AccessControlIT,UploadIT,AdapterLifecycleIT,DeletionIT,ObservabilityIT,WorkerTokenValidationTest,StartupChecksTest'
+
+.PHONY: test-load
+test-load: ## Bounded control-plane load on mock jobs, with no GPU. Needs MM_SESSION_COOKIE, MM_CSRF_TOKEN, MM_PROJECT_ID, MM_GENERATE_BODY
+	docker run --rm -i --add-host=host.docker.internal:host-gateway -e MM_SESSION_COOKIE -e MM_CSRF_TOKEN -e MM_PROJECT_ID -e MM_GENERATE_BODY grafana/k6:1.8.2@sha256:00fdcebafbc86cb0137d429529b1caa401a02e09025f02fc74866fa6e2b004d8 run - < tests/load/control-plane.js
+
+.PHONY: test-failure-recovery
+test-failure-recovery: ## Kill, restart, freeze and outage through the running stack, plus lease and outbox tests
+	cd apps/api && ./mvnw -q test -Dtest='LeaseIT,OutboxIT'
+	cd services/ml-worker && uv run --extra wan --group dev pytest tests/unit/test_consumer.py tests/unit/test_runner.py -q
+	$(COMPOSE) -f infra/compose/recovery-test.yaml --profile lite up -d --build --wait
+	MM_E2E_RECOVERY=1 pnpm --filter @motionmirror/e2e exec playwright test recovery; code=$$?; \
+		$(COMPOSE) --profile lite up -d --wait; exit $$code
+
 .PHONY: models-download
 models-download: ## Download pinned weights. PROFILE=preprocess|preprocess-gpu|wan|mac-spike. Explicit only
 	cd services/ml-worker && uv run --extra preprocess python -m motionmirror.cli.models --profile $(PROFILE)
 
 .PHONY: up-mac-native
 up-mac-native: bootstrap ## Containers for everything except workers, for use with worker-native-mac
-	$(COMPOSE) --profile lite stop worker-mock
+	$(COMPOSE) --profile lite stop worker-mock worker-validate
 	$(COMPOSE) -f infra/compose/native-worker.yaml --profile lite up -d --build --wait
 
 .PHONY: worker-native-mac
@@ -104,7 +130,7 @@ spike-mac: ## Measure tracking and pose on this Mac. CLIP_DIR holds video.mp4 an
 
 .PHONY: test-tools
 test-tools: ## Unit tests for repository tooling
-	uv run --with pytest --no-project pytest tests/tools -q
+	uv run --with pytest --with pyyaml --no-project pytest tests/tools -q
 
 .PHONY: datasets-fetch
 datasets-fetch: ## Download a registered dataset. Needs DATASET=<id>
@@ -145,6 +171,10 @@ adapter-promote: ## Make a staged adapter the default. Research adapters are ref
 .PHONY: adapter-rollback
 adapter-rollback: ## Return a preset's default to its previous revision. PRESET=<id>
 	cd training && uv run mm-train adapter rollback --preset $(PRESET)
+
+.PHONY: reconcile-after-restore
+reconcile-after-restore: ## After restoring a database backup, apply recorded deletions again. Run before reopening
+	cd training && uv run mm-train adapter reconcile-after-restore
 
 .PHONY: adapter-list
 adapter-list: ## List registered adapters

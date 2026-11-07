@@ -17,25 +17,32 @@ public class StartupChecks {
     private final AppProperties properties;
     private final boolean secureCookie;
     private final long consumerTimeoutMillis;
+    private final boolean rabbitTls;
+    private final boolean redisTls;
 
     public StartupChecks(AppProperties properties,
             @Value("${server.servlet.session.cookie.secure}") boolean secureCookie,
-            @Value("${motionmirror.jobs.broker-consumer-timeout-ms:21600000}") long consumerTimeoutMillis) {
+            @Value("${motionmirror.jobs.broker-consumer-timeout-ms:21600000}") long consumerTimeoutMillis,
+            @Value("${spring.rabbitmq.ssl.enabled:false}") boolean rabbitTls,
+            @Value("${spring.data.redis.ssl.enabled:false}") boolean redisTls) {
         this.properties = properties;
         this.secureCookie = secureCookie;
         this.consumerTimeoutMillis = consumerTimeoutMillis;
+        this.rabbitTls = rabbitTls;
+        this.redisTls = redisTls;
     }
 
     @PostConstruct
     void check() {
-        List<String> problems = problems(properties, secureCookie, consumerTimeoutMillis);
+        List<String> problems = problems(properties, secureCookie, consumerTimeoutMillis, rabbitTls, redisTls);
         if (!problems.isEmpty()) {
             throw new IllegalStateException("Unsafe configuration: " + String.join("; ", problems));
         }
     }
 
     /** Separate from the bean so each rule can be tested directly. */
-    public static List<String> problems(AppProperties properties, boolean secureCookie, long consumerTimeoutMillis) {
+    public static List<String> problems(AppProperties properties, boolean secureCookie, long consumerTimeoutMillis,
+            boolean rabbitTls, boolean redisTls) {
         List<String> problems = new ArrayList<>();
         Duration needed = properties.jobs().maxAttemptDuration().plus(CLEANUP_MARGIN);
         if (consumerTimeoutMillis < needed.toMillis()) {
@@ -59,6 +66,12 @@ public class StartupChecks {
             }
             if (!isHttps(properties.storage().publicEndpoint())) {
                 problems.add("the storage endpoint must use HTTPS in production");
+            }
+            if (!rabbitTls) {
+                problems.add("the connection to RabbitMQ must use TLS in production");
+            }
+            if (!redisTls) {
+                problems.add("the connection to Redis must use TLS in production");
             }
         }
         return problems;

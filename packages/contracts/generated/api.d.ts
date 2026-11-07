@@ -148,6 +148,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/retention/reconcile-after-restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["reconcileAfterRestore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/presets/{id}/rollback": {
         parameters: {
             query?: never;
@@ -659,6 +675,12 @@ export interface components {
             /** Format: date-time */
             createdAt?: string;
         };
+        Result: {
+            /** Format: int32 */
+            recorded?: number;
+            /** Format: int32 */
+            reapplied?: number;
+        };
         RevisionView: {
             presetId?: string;
             /** Format: int32 */
@@ -1085,6 +1107,26 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["AssetView"];
+                };
+            };
+        };
+    };
+    reconcileAfterRestore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["Result"];
                 };
             };
         };

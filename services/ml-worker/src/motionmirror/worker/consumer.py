@@ -10,6 +10,7 @@ from typing import Any, Protocol
 from motionmirror.contracts.envelope import InvalidEnvelope, parse_envelope
 from motionmirror.worker.api_client import ApiClient, ApiUnavailable, Disposition, LeaseLost
 from motionmirror.worker.runner import AttemptRunner
+from motionmirror.worker.telemetry import attempt_span
 
 log = logging.getLogger(__name__)
 
@@ -40,8 +41,30 @@ class TaskHandler:
         self._runner = runner
         self._worker_id = worker_id
         self._capacity = asyncio.Semaphore(max_generations)
+        self._in_flight = 0
+        self._idle = asyncio.Event()
+        self._idle.set()
 
     async def handle(self, message: DeliveredMessage) -> None:
+        self._in_flight += 1
+        self._idle.clear()
+        try:
+            await self._handle(message)
+        finally:
+            self._in_flight -= 1
+            if not self._in_flight:
+                self._idle.set()
+
+    async def drain(self, seconds: float) -> None:
+        """Waits for running work. Past the limit it stops the attempt, which reports a failure and retries at once."""
+        try:
+            await asyncio.wait_for(self._idle.wait(), timeout=seconds)
+        except TimeoutError:
+            log.warning("stopping the running attempt after waiting %.0f seconds", seconds)
+            await self._runner.stop_active()
+            await self._idle.wait()
+
+    async def _handle(self, message: DeliveredMessage) -> None:
         try:
             envelope = parse_envelope(message.body)
         except InvalidEnvelope as invalid:
@@ -72,7 +95,9 @@ class TaskHandler:
                 return
 
             try:
-                state = await self._runner.run(lease)
+                with attempt_span(envelope.trace, envelope.job_id, envelope.task_type, envelope.backend_id) as span:
+                    state = await self._runner.run(lease)
+                    span.set_attribute("mm.outcome", state)
                 log.info("job %s recorded as %s", envelope.job_id, state)
             except LeaseLost:
                 log.warning("lost the lease on job %s", envelope.job_id)
@@ -103,7 +128,15 @@ async def resubscribe_cancelled(channel: Any, subscriptions: dict[str, Any], han
     return restored
 
 
-async def consume(settings: Any, handler: Any, watchdog_seconds: float = 10.0) -> None:
+async def consume(
+    settings: Any,
+    handler: Any,
+    watchdog_seconds: float = 10.0,
+    stop: asyncio.Event | None = None,
+    drain_seconds: float = 60.0,
+) -> None:
+    """Runs until stop is set, then takes no new work and lets the current attempt finish, within a limit."""
+    stop = stop or asyncio.Event()
     import aio_pika
 
     connection = await aio_pika.connect_robust(settings.amqp_url)
@@ -116,6 +149,12 @@ async def consume(settings: Any, handler: Any, watchdog_seconds: float = 10.0) -
             queue = await channel.declare_queue(name, passive=True)
             subscriptions[name] = {"queue": queue, "tag": await queue.consume(handler.handle, no_ack=False)}
             log.info("consuming %s", name)
-        while True:
-            await asyncio.sleep(watchdog_seconds)
-            await resubscribe_cancelled(channel, subscriptions, handler)
+        while not stop.is_set():
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=watchdog_seconds)
+            except TimeoutError:
+                await resubscribe_cancelled(channel, subscriptions, handler)
+        log.info("draining: taking no new work")
+        for subscription in subscriptions.values():
+            await subscription["queue"].cancel(subscription["tag"])
+        await handler.drain(drain_seconds)

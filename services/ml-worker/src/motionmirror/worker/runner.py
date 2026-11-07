@@ -17,6 +17,7 @@ import httpx
 from motionmirror.backends.mock import sha256_file
 from motionmirror.media.probe import probe
 from motionmirror.worker.api_client import ApiClient, ApiUnavailable, Lease, LeaseLost
+from motionmirror.worker.telemetry import record_stage
 
 log = logging.getLogger(__name__)
 
@@ -76,6 +77,7 @@ class AttemptRunner:
         max_attempt_seconds: float,
         terminate_grace_seconds: float,
         child_command: list[str] | None = None,
+        upload_retry_delays: tuple[float, ...] = (5, 15, 45, 120),
     ) -> None:
         self._api = api
         self._scratch_dir = scratch_dir
@@ -83,6 +85,13 @@ class AttemptRunner:
         self._max_attempt_seconds = max_attempt_seconds
         self._grace = terminate_grace_seconds
         self._child_command = child_command or [sys.executable, "-m", "motionmirror.worker.child"]
+        self._upload_retry_delays = upload_retry_delays
+        self._active: asyncio.subprocess.Process | None = None
+
+    async def stop_active(self) -> None:
+        """For a worker shutting down. The attempt then reports a retryable failure and doesn't wait out its lease."""
+        if self._active is not None:
+            await self._terminate(self._active)
 
     async def run(self, lease: Lease) -> str:
         """Returns the job state the API recorded. Raises LeaseLost if another attempt took over."""
@@ -114,12 +123,41 @@ class AttemptRunner:
 
         await self._report(lease, "upload")
         try:
-            outputs = await self._upload_outputs(lease, outcome["outputs"])
+            outputs = await self._upload_keeping_the_result(lease, outcome["outputs"])
         except httpx.HTTPError as error:
             return await self._storage_failure(lease, "saving outputs", error)
         return await self._api.complete(
             lease, outputs, outcome.get("result", {}), outcome.get("effective_settings", {})
         )
+
+    async def _upload_keeping_the_result(self, lease: Lease, outputs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """A finished result can be hours of GPU time, so a storage blip must not throw it away.
+
+        Retries in place with fresh URLs, since an old one may have expired. Heartbeats continue throughout, because
+        a slow upload from a remote GPU can easily outlast the lease.
+        """
+        heartbeats = asyncio.create_task(self._keep_lease(lease))
+        try:
+            for delay in (*self._upload_retry_delays, None):
+                try:
+                    return await self._upload_outputs(lease, outputs)
+                except httpx.HTTPError as error:
+                    if delay is None:
+                        raise
+                    log.warning("upload failed for job %s, retrying: %s", lease.job_id, type(error).__name__)
+                    await asyncio.sleep(delay)
+            raise AssertionError("unreachable")
+        finally:
+            heartbeats.cancel()
+            await asyncio.gather(heartbeats, return_exceptions=True)
+
+    async def _keep_lease(self, lease: Lease) -> None:
+        while True:
+            await asyncio.sleep(self._heartbeat_seconds)
+            try:
+                await self._api.heartbeat(lease)
+            except ApiUnavailable:
+                log.warning("heartbeat failed for job %s", lease.job_id)
 
     async def _storage_failure(self, lease: Lease, doing: str, error: httpx.HTTPError) -> str:
         """Report it now and let the API's retry policy decide, rather than waiting for the lease to expire."""
@@ -159,6 +197,7 @@ class AttemptRunner:
     async def _report(
         self, lease: Lease, stage: str, current: int | None = None, total: int | None = None, unit: str | None = None
     ) -> None:
+        record_stage(stage)
         try:
             await self._api.progress(lease, stage, current, total, unit)
         except ApiUnavailable:
@@ -170,6 +209,7 @@ class AttemptRunner:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )  # fmt: skip
+        self._active = process
         progress = asyncio.create_task(self._forward_progress(lease, process))
         started = time.monotonic()
         try:
@@ -198,6 +238,7 @@ class AttemptRunner:
             await self._terminate(process)
             raise
         finally:
+            self._active = None
             await asyncio.gather(progress, return_exceptions=True)
 
         result_path = attempt_dir / "attempt_result.json"

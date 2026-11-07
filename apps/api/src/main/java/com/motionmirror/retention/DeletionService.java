@@ -42,7 +42,9 @@ public class DeletionService {
 
     @Transactional
     public void deleteProject(CurrentUser user, UUID projectId) {
-        purgeProject(projects.requireOwned(user, projectId));
+        ProjectEntity project = projects.requireOwned(user, projectId);
+        purgeProject(project);
+        record("PROJECT", projectId, project.getOwnerId());
         audit.user(user, "PROJECT_DELETED", "project", projectId.toString(), Map.of());
     }
 
@@ -51,6 +53,7 @@ public class DeletionService {
     public void expireProject(UUID projectId) {
         projectRepository.findById(projectId).filter(project -> "ACTIVE".equals(project.getStatus())).ifPresent(project -> {
             purgeProject(project);
+            record("PROJECT", projectId, project.getOwnerId());
             audit.system("PROJECT_EXPIRED", "project", projectId.toString(), Map.of());
         });
     }
@@ -77,11 +80,19 @@ public class DeletionService {
         AssetEntity asset = assets.findByIdAndOwnerId(assetId, user.id())
                 .filter(found -> !AssetEntity.DELETED.equals(found.getStatus()))
                 .orElseThrow(() -> ApiException.notFound("Asset"));
+        String role = asset.getRole();
+        purgeAsset(asset);
+        record("ASSET", assetId, user.id());
+        audit.user(user, "ASSET_DELETED", "asset", assetId.toString(), Map.of("role", role));
+    }
+
+    private void purgeAsset(AssetEntity asset) {
+        UUID assetId = asset.getId();
         removeJobs(jdbc.sql("""
                 SELECT id FROM generation_jobs
                 WHERE project_id = :project AND (inputs->>'asset_id' = :asset OR inputs->>'source_asset_id' = :asset
                     OR inputs->>'primary_reference_asset_id' = :asset)
-                """).param("project", asset.getProjectId()).param("asset", assetId.toString()).query(UUID.class).list(), user.id());
+                """).param("project", asset.getProjectId()).param("asset", assetId.toString()).query(UUID.class).list(), asset.getOwnerId());
         jdbc.sql("DELETE FROM preprocessing_artifacts WHERE source_asset_id = :asset").param("asset", assetId).update();
         jdbc.sql("DELETE FROM subject_selections WHERE source_asset_id = :asset").param("asset", assetId).update();
         // A profile can't exist without its primary photo. Without this one it simply loses an extra view.
@@ -90,11 +101,9 @@ public class DeletionService {
                     SELECT profile_id FROM reference_images WHERE asset_id = :asset AND is_primary)
                 """).param("asset", assetId).update();
         jdbc.sql("DELETE FROM reference_images WHERE asset_id = :asset").param("asset", assetId).update();
-        String role = asset.getRole();
         tombstoneAsset(asset);
         asset.markDeleted();
         assets.save(asset);
-        audit.user(user, "ASSET_DELETED", "asset", assetId.toString(), Map.of("role", role));
     }
 
     /** One result. Masks are shared by later jobs, so they only go with their clip. */
@@ -107,7 +116,45 @@ public class DeletionService {
             throw ApiException.conflict("NOT_A_RESULT", "Only generated results can be deleted one at a time");
         }
         removeJobs(List.of(jobId), user.id());
+        record("RESULT", jobId, user.id());
         audit.user(user, "RESULT_DELETED", "job", jobId.toString(), Map.of("kind", kind));
+    }
+
+    /** One recorded deletion, after a restore. Returns whether the restored database had brought it back. */
+    @Transactional
+    public boolean reapply(String kind, UUID targetId, UUID ownerId, UUID recordId) {
+        boolean restored = switch (kind) {
+            case "PROJECT" -> projectRepository.findById(targetId).filter(project -> "ACTIVE".equals(project.getStatus()))
+                    .map(project -> {
+                        purgeProject(project);
+                        return true;
+                    }).orElse(false);
+            case "ASSET" -> assets.findById(targetId).filter(asset -> !AssetEntity.DELETED.equals(asset.getStatus()))
+                    .map(asset -> {
+                        purgeAsset(asset);
+                        return true;
+                    }).orElse(false);
+            case "RESULT" -> {
+                boolean exists = jdbc.sql("SELECT count(*) FROM generation_jobs WHERE id = :id").param("id", targetId)
+                        .query(Long.class).single() > 0;
+                if (exists) {
+                    removeJobs(List.of(targetId), ownerId);
+                }
+                yield exists;
+            }
+            default -> throw new IllegalArgumentException("unknown deletion kind " + kind);
+        };
+        // Back in the log too, already exported, so the database again knows what happened.
+        jdbc.sql("""
+                INSERT INTO deletion_log (id, kind, target_id, owner_id, exported_at) VALUES (:id, :kind, :target, :owner, now())
+                ON CONFLICT (id) DO NOTHING
+                """).param("id", recordId).param("kind", kind).param("target", targetId).param("owner", ownerId).update();
+        return restored;
+    }
+
+    private void record(String kind, UUID targetId, UUID ownerId) {
+        jdbc.sql("INSERT INTO deletion_log (id, kind, target_id, owner_id) VALUES (:id, :kind, :target, :owner)")
+                .param("id", UUID.randomUUID()).param("kind", kind).param("target", targetId).param("owner", ownerId).update();
     }
 
     /** Attempt rows go with their job, so their storage prefixes are recorded first. By prefix catches unreported output. */

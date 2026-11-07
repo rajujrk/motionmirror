@@ -274,4 +274,59 @@ class LeaseIT {
                 new WorkerDtos.ArtifactAccessRequest(attempt.attemptId(), attempt.fencingToken(), List.of("assets/other/original"), List.of())))
                 .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code()).isEqualTo("UNKNOWN_INPUT"));
     }
+
+    private int maxAttempts(UUID job) {
+        return jdbc.sql("SELECT max_attempts FROM generation_jobs WHERE id = :id").param("id", job).query(Integer.class).single();
+    }
+
+    private WorkerDtos.AcquireResponse leaseFor(JobRow job) {
+        return ((LeaseService.Acquired) leases.acquire(job.id(), UUID.randomUUID(), job.dispatchGeneration(), "w", Set.of(job.backendId()))).response();
+    }
+
+    @Test
+    void aStorageOutageDoesntUseUpTheJobsAttempts() {
+        UUID owner = fixtures.user();
+        JobRow job = fixtures.queuedJob(owner, fixtures.project(owner), JobKind.PREVIEW);
+        int before = maxAttempts(job.id());
+        WorkerDtos.AcquireResponse attempt = leaseFor(job);
+        assertThat(leases.fail(job.id(), new WorkerDtos.FailRequest(attempt.attemptId(), attempt.fencingToken(), "STORAGE_ERROR", "down", true)))
+                .isEqualTo(JobState.RETRY_WAIT);
+        assertThat(maxAttempts(job.id())).as("the attempt it spent is given back").isEqualTo(before + 1);
+    }
+
+    @Test
+    void aStorageOutageStillRetriesOnTheLastOrdinaryAttempt() {
+        UUID owner = fixtures.user();
+        JobRow job = fixtures.queuedJob(owner, fixtures.project(owner), JobKind.PREVIEW);
+        WorkerDtos.AcquireResponse attempt = leaseFor(job);
+        jdbc.sql("UPDATE generation_jobs SET attempt_count = max_attempts WHERE id = :id").param("id", job.id()).update();
+        assertThat(leases.fail(job.id(), new WorkerDtos.FailRequest(attempt.attemptId(), attempt.fencingToken(), "STORAGE_ERROR", "down", true)))
+                .isEqualTo(JobState.RETRY_WAIT);
+    }
+
+    @Test
+    void anOrdinaryFailureStillUsesAnAttempt() {
+        UUID owner = fixtures.user();
+        JobRow job = fixtures.queuedJob(owner, fixtures.project(owner), JobKind.PREVIEW);
+        int before = maxAttempts(job.id());
+        WorkerDtos.AcquireResponse attempt = leaseFor(job);
+        leases.fail(job.id(), new WorkerDtos.FailRequest(attempt.attemptId(), attempt.fencingToken(), "INTERNAL_ERROR", "bug", true));
+        assertThat(maxAttempts(job.id())).isEqualTo(before);
+    }
+
+    @Test
+    void aLastingOutageEventuallyEndsTheJob() {
+        UUID owner = fixtures.user();
+        JobRow job = fixtures.queuedJob(owner, fixtures.project(owner), JobKind.PREVIEW);
+        WorkerDtos.AcquireResponse attempt = leaseFor(job);
+        for (int number = 100; number < 106; number++) {
+            jdbc.sql("""
+                    INSERT INTO job_attempts (id, job_id, attempt_no, worker_id, fencing_token, dispatch_generation, event_id, state, lease_expires_at, failure_code)
+                    VALUES (:id, :job, :number, 'w', :number, 1, :event, 'FAILED', now(), 'STORAGE_ERROR')
+                    """).param("id", UUID.randomUUID()).param("job", job.id()).param("number", number).param("event", UUID.randomUUID()).update();
+        }
+        jdbc.sql("UPDATE generation_jobs SET attempt_count = max_attempts WHERE id = :id").param("id", job.id()).update();
+        assertThat(leases.fail(job.id(), new WorkerDtos.FailRequest(attempt.attemptId(), attempt.fencingToken(), "STORAGE_ERROR", "down", true)))
+                .isEqualTo(JobState.FAILED);
+    }
 }

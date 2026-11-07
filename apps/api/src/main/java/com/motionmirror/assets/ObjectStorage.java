@@ -24,6 +24,7 @@ import software.amazon.awssdk.services.s3.model.CORSRule;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
 import software.amazon.awssdk.services.s3.model.S3Exception;
+import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 /** Private S3-compatible storage. Signed URLs are built for the network of whoever will use them. */
@@ -166,6 +167,20 @@ public class ObjectStorage {
 
     public void delete(String key) {
         client.deleteObject(request -> request.bucket(config.bucket()).key(key));
+    }
+
+    public List<String> listKeys(String prefix) {
+        return client.listObjectsV2Paginator(request -> request.bucket(config.bucket()).prefix(prefix))
+                .contents().stream().map(object -> object.key()).toList();
+    }
+
+    public void writeText(String key, String content) {
+        client.putObject(request -> request.bucket(config.bucket()).key(key).contentType("application/json"),
+                RequestBody.fromString(content));
+    }
+
+    public String readText(String key) {
+        return client.getObjectAsBytes(request -> request.bucket(config.bucket()).key(key)).asUtf8String();
     }
 
     /** Removes everything under a prefix, including anything an attempt uploaded but never reported. */

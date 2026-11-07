@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import time
 from pathlib import Path
 from typing import Any
 
@@ -81,6 +83,14 @@ def encode_with_banner(source: Path, banner: Path, output: Path, start: float | 
     run_ffmpeg(args)
 
 
+def _hold_for_recovery_tests(context: JobContext) -> None:
+    """Keeps an attempt busy so a test can break something mid-job. Mock mode is refused in production at startup."""
+    deadline = time.monotonic() + float(os.environ.get("MM_MOCK_HOLD_SECONDS", "0"))
+    while time.monotonic() < deadline:
+        time.sleep(0.25)
+        context.check_cancelled()
+
+
 class MockReplacementBackend:
     def capabilities(self) -> BackendCapabilities:
         return BackendCapabilities(
@@ -107,6 +117,7 @@ class MockReplacementBackend:
         info = probe(request.source_path)
         context.progress("generate")
         context.check_cancelled()
+        _hold_for_recovery_tests(context)
 
         context.progress("composite")
         banner = make_banner(info.display_width, info.display_height, context.workspace / "banner.png")

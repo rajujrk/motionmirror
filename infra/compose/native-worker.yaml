@@ -11,3 +11,5 @@ services:
       - "127.0.0.1:${MM_HOST_API_PORT:-58081}:8081"
   worker-mock:
     profiles: !override [container-worker]
+  worker-validate:
+    profiles: !override [container-worker]

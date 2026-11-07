@@ -7,7 +7,10 @@ so a stuck model can't stop heartbeats or cancellation.
 from __future__ import annotations
 
 import json
+import os
 import sys
+import threading
+import time
 import traceback
 from dataclasses import asdict
 from pathlib import Path
@@ -16,6 +19,7 @@ from typing import Any
 from motionmirror.backends.base import AdapterInput, GenerationRequest, JobContext
 from motionmirror.backends.mock import sha256_file
 from motionmirror.backends.registry import create_backend
+from motionmirror.media.clamav import ScannerUnavailable, scan
 from motionmirror.media.validation import RejectedMedia, validate_image, validate_video
 from motionmirror.worker.failures import AttemptFailure
 
@@ -36,10 +40,26 @@ class PipeContext(JobContext):
         print(json.dumps({"stage": stage, "current": current, "total": total, "unit": unit}), flush=True)
 
 
+def scan_upload(path: Path) -> None:
+    """Only when configured. Once it is there's no way past it: an outage retries, and never lets a file through."""
+    host = os.environ.get("MM_CLAMD_HOST")
+    if not host:
+        return
+    try:
+        found = scan(path, host, int(os.environ.get("MM_CLAMD_PORT", "3310")))
+    except ScannerUnavailable as error:
+        raise AttemptFailure("SCANNER_UNAVAILABLE", "The security scan is unavailable right now", True) from error
+    if found:
+        # Logged for the operator. The uploader gets no signature to test variations against.
+        print(f"upload rejected by scanner: {found}", file=sys.stderr)
+        raise AttemptFailure("INVALID_MEDIA", "This file failed the security scan")
+
+
 def run_validate(spec: dict[str, Any], context: JobContext) -> dict[str, Any]:
     inputs = spec["request"]["inputs"]
     path = Path(spec["input_paths"]["asset"])
     context.progress("validate")
+    scan_upload(path)
     try:
         if inputs["role"] == "DRIVING_VIDEO":
             media = validate_video(path, float(inputs["max_seconds"]))
@@ -133,7 +153,19 @@ def classify(error: BaseException) -> tuple[str, str, bool]:
     return "INTERNAL_ERROR", f"{name} while processing", True
 
 
+def exit_when_orphaned(parent: int, interval: float = 5.0) -> None:
+    """If the supervisor is killed, stop too. Otherwise this would hold the GPU for work nobody can report."""
+
+    def watch() -> None:
+        while os.getppid() == parent:
+            time.sleep(interval)
+        os._exit(1)
+
+    threading.Thread(target=watch, daemon=True).start()
+
+
 def main(spec_path: str) -> int:
+    exit_when_orphaned(os.getppid())
     spec = json.loads(Path(spec_path).read_text())
     workspace = Path(spec["workspace"])
     context = PipeContext(workspace)

@@ -195,74 +195,132 @@ def run_pose(clip_dir: Path, provider: str, frames_limit: int, width: int, heigh
 
 
 def run_gguf(output: Path, seconds_limit: int) -> dict[str, Any]:
-    """Real Wan-Animate from the smallest GGUF at the smallest valid size, with a hard time limit and a watchdog."""
+    """Real Wan-Animate from the smallest GGUF at the smallest valid size, with a hard time limit and a watchdog.
+
+    The fairest chance this machine can get: text and image encoders run first on the CPU and are freed before the
+    transformer loads, so nothing holds memory it doesn't need. Each stage is saved as it finishes, so a stop or a crash
+    still says how far it got. A failure is a valid result.
+    """
+    import gc
+
     import torch
     from diffusers import AutoencoderKLWan, GGUFQuantizationConfig, WanAnimatePipeline, WanAnimateTransformer3DModel
     from PIL import Image
 
     from motionmirror.preprocessing.models import model_cache
 
-    cache = model_cache()
-    stages: dict[str, Any] = {}
+    model_dir = model_cache() / "wan-animate-14b"
+    progress_path = output / "gguf_progress.json"
+    stages: dict[str, Any] = {"size": "448x256", "frames": 9, "steps": 4, "gguf": "Q2_K"}
+
+    def record(stage: str, started: float, **extra: Any) -> None:
+        stages[stage] = {"seconds": round(time.monotonic() - started, 1), "peak_rss_gb": peak_rss_gb(), **extra}
+        progress_path.write_text(json.dumps(stages, indent=2))
+        print(stage, json.dumps(stages[stage]), flush=True)
 
     def on_trip(reason: str) -> None:
+        stages["stopped_by_watchdog"] = reason
+        stages["peak_rss_gb"] = peak_rss_gb()
+        progress_path.write_text(json.dumps(stages, indent=2))
         print(f"WATCHDOG: {reason}. Stopping to protect the machine.", flush=True)
-        os.kill(os.getpid(), signal.SIGTERM)
+        os._exit(3)
 
-    signal.signal(
-        signal.SIGALRM, lambda *_: (_ for _ in ()).throw(TimeoutError(f"stopped at the {seconds_limit}s limit"))
-    )
+    def on_alarm(*_: Any) -> None:
+        raise TimeoutError(f"stopped at the {seconds_limit}s limit")
+
+    height, width, frames = 256, 448, 9
+    canvas = Image.new("RGB", (width, height), (40, 40, 40))
+    signal.signal(signal.SIGALRM, on_alarm)
     signal.alarm(seconds_limit)
     with MemoryWatchdog(on_trip):
         started = time.monotonic()
+        text_pipe = WanAnimatePipeline.from_pretrained(
+            str(model_dir),
+            transformer=None,
+            vae=None,
+            image_encoder=None,
+            torch_dtype=torch.bfloat16,
+            local_files_only=True,
+        )
+        record("text_encoder_loaded", started)
+
+        started = time.monotonic()
+        with torch.inference_mode():
+            prompt_embeds, _ = text_pipe.encode_prompt(
+                "a person dancing", do_classifier_free_guidance=False, device="cpu", dtype=torch.bfloat16
+            )
+        record("prompt_encoded", started)
+        del text_pipe
+        gc.collect()
+
+        started = time.monotonic()
+        image_pipe = WanAnimatePipeline.from_pretrained(
+            str(model_dir),
+            transformer=None,
+            vae=None,
+            text_encoder=None,
+            torch_dtype=torch.float32,
+            local_files_only=True,
+        )
+        with torch.inference_mode():
+            image_embeds = image_pipe.encode_image(canvas, device="cpu")
+        record("image_encoded", started)
+        del image_pipe
+        gc.collect()
+
+        started = time.monotonic()
         transformer = WanAnimateTransformer3DModel.from_single_file(
-            str(cache / "gguf" / "Wan2.2-Animate-14B-Q2_K.gguf"),
+            str(model_cache() / "gguf" / "Wan2.2-Animate-14B-Q2_K.gguf"),
             quantization_config=GGUFQuantizationConfig(compute_dtype=torch.float16),
-            config=str(cache / "wan-animate-14b"),
+            config=str(model_dir),
             subfolder="transformer",
             torch_dtype=torch.float16,
         )
-        stages["transformer_load_seconds"] = round(time.monotonic() - started, 1)
-        stages["peak_rss_after_transformer_gb"] = peak_rss_gb()
-        vae = AutoencoderKLWan.from_pretrained(
-            str(cache / "wan-animate-14b"), subfolder="vae", torch_dtype=torch.float32
-        )
+        vae = AutoencoderKLWan.from_pretrained(str(model_dir), subfolder="vae", torch_dtype=torch.float32)
         pipe = WanAnimatePipeline.from_pretrained(
-            str(cache / "wan-animate-14b"), transformer=transformer, vae=vae, torch_dtype=torch.float16
+            str(model_dir),
+            transformer=transformer,
+            vae=vae,
+            text_encoder=None,
+            image_encoder=None,
+            torch_dtype=torch.float16,
+            local_files_only=True,
         )
-        pipe.enable_model_cpu_offload(device="mps")
+        pipe.to("mps")
         pipe.vae.enable_tiling()
-        stages["pipeline_load_seconds"] = round(time.monotonic() - started, 1)
-        stages["peak_rss_after_pipeline_gb"] = peak_rss_gb()
-        print(json.dumps(stages), flush=True)
+        record("transformer_loaded", started, mps_driver_gb=mps_driver_gb("mps"))
 
-        frames = 9
-        size = (256, 448)  # height, width: divisible by 16
-        canvas = Image.new("RGB", (size[1], size[0]), (40, 40, 40))
-        started = time.monotonic()
+        def on_step(_pipe: Any, step: int, _timestep: Any, callback_kwargs: dict[str, Any]) -> dict[str, Any]:
+            stages["last_step_finished"] = step
+            stages["last_step_seconds_since_start"] = round(time.monotonic() - generate_started, 1)
+            progress_path.write_text(json.dumps(stages, indent=2))
+            print(f"step {step} at {stages['last_step_seconds_since_start']}s, rss {peak_rss_gb()} GB", flush=True)
+            return callback_kwargs
+
+        generate_started = time.monotonic()
         result = pipe(
             image=canvas,
             pose_video=[canvas] * frames,
             face_video=[Image.new("RGB", (512, 512), (120, 90, 80))] * frames,
             background_video=[canvas] * frames,
-            mask_video=[Image.new("L", (size[1], size[0]), 255)] * frames,
-            prompt="a person",
-            height=size[0],
-            width=size[1],
-            segment_frame_length=9,
+            mask_video=[Image.new("L", (width, height), 255)] * frames,
+            prompt_embeds=prompt_embeds.to("mps", dtype=torch.float16),
+            image_embeds=image_embeds.to("mps", dtype=torch.float16),
+            height=height,
+            width=width,
+            segment_frame_length=frames,
             prev_segment_conditioning_frames=1,
-            num_inference_steps=4,
+            num_inference_steps=stages["steps"],
             guidance_scale=1.0,
             mode="replace",
             generator=torch.Generator("cpu").manual_seed(0),
             output_type="np",
+            callback_on_step_end=on_step,
+            callback_on_step_end_tensor_inputs=[],
         )
-        stages["generate_seconds"] = round(time.monotonic() - started, 1)
-        stages["frames"] = frames
-        stages["steps"] = 4
-        stages["size"] = f"{size[1]}x{size[0]}"
-        stages["output_shape"] = list(result.frames[0].shape)
-        stages["peak_rss_gb"] = peak_rss_gb()
+        record(
+            "generated", generate_started, output_shape=list(result.frames[0].shape), mps_driver_gb=mps_driver_gb("mps")
+        )
     signal.alarm(0)
     np.save(output / "gguf_output.npy", result.frames[0])
     return stages

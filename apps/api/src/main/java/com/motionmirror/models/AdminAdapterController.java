@@ -1,6 +1,7 @@
 package com.motionmirror.models;
 
 import com.motionmirror.identity.CurrentUserService;
+import com.motionmirror.retention.RestoreReconciler;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -36,10 +37,18 @@ public class AdminAdapterController {
 
     private final AdapterService adapters;
     private final CurrentUserService currentUser;
+    private final RestoreReconciler reconciler;
 
-    public AdminAdapterController(AdapterService adapters, CurrentUserService currentUser) {
+    public AdminAdapterController(AdapterService adapters, CurrentUserService currentUser, RestoreReconciler reconciler) {
         this.adapters = adapters;
         this.currentUser = currentUser;
+        this.reconciler = reconciler;
+    }
+
+    /** Run after restoring a database backup, before letting anyone back in. */
+    @PostMapping("/retention/reconcile-after-restore")
+    public RestoreReconciler.Result reconcileAfterRestore() {
+        return reconciler.reconcile(currentUser.require());
     }
 
     @PostMapping("/adapters/upload-target")

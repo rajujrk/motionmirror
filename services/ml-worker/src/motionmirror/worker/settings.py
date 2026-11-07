@@ -21,9 +21,11 @@ class WorkerSettings(BaseSettings):
     amqp_url: str
     queues: str
     scratch_dir: Path = Path("/tmp/motionmirror-attempts")
+    otlp_traces_endpoint: str | None = None
     heartbeat_seconds: float = 20.0
     max_attempt_seconds: float = 4 * 60 * 60
     terminate_grace_seconds: float = 20.0
+    drain_seconds: float = 60.0
     http_timeout_seconds: float = 30.0
     max_generations: int = Field(default=1, description="Real generations at once on one GPU, independent of prefetch")
 

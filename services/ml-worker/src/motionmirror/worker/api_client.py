@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from opentelemetry.propagate import inject
 
 
 class LeaseLost(RuntimeError):
@@ -86,7 +87,9 @@ class ApiClient:
         for attempt in range(self.RETRIES):
             try:
                 token = await self._bearer()
-                response = await self._client.post(path, json=body, headers={"Authorization": f"Bearer {token}"})
+                headers = {"Authorization": f"Bearer {token}"}
+                inject(headers)
+                response = await self._client.post(path, json=body, headers=headers)
             except httpx.HTTPError as error:
                 if attempt == self.RETRIES - 1:
                     raise ApiUnavailable(type(error).__name__) from error

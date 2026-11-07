@@ -3,6 +3,7 @@ package com.motionmirror.retention;
 import com.motionmirror.assets.ObjectStorage;
 import com.motionmirror.audit.AuditService;
 import com.motionmirror.config.AppProperties;
+import com.motionmirror.shared.Json;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -47,6 +48,7 @@ public class StoragePurger {
             if (projectDays > 0) {
                 expireIdleProjects(projectDays);
             }
+            exportDeletionLog();
             purgeTombstones(urlLifetime);
             expireAbandonedUploads();
         } catch (RuntimeException error) {
@@ -87,6 +89,19 @@ public class StoragePurger {
                 UPDATE deletion_tombstones SET purged_at = now()
                 WHERE object_key = :key AND deleted_at <= now() - make_interval(secs => :seconds)
                 """).param("key", key).param("seconds", closeAfter.toSeconds()).update();
+    }
+
+    /** Copied out of the database, because restoring a backup would roll back the only record of these deletions. */
+    public void exportDeletionLog() {
+        List<Map<String, Object>> pending = jdbc.sql("""
+                SELECT id, kind, target_id, owner_id FROM deletion_log WHERE exported_at IS NULL ORDER BY deleted_at LIMIT :limit
+                """).param("limit", BATCH).query().listOfRows();
+        for (Map<String, Object> row : pending) {
+            String record = Json.write(Map.of("id", row.get("id").toString(), "kind", row.get("kind"),
+                    "target_id", row.get("target_id").toString(), "owner_id", row.get("owner_id").toString()));
+            storage.writeText(RestoreReconciler.PREFIX + row.get("id") + ".json", record);
+            jdbc.sql("UPDATE deletion_log SET exported_at = now() WHERE id = :id").param("id", row.get("id")).update();
+        }
     }
 
     /** Uploads that never finished are removed once their form expires. */

@@ -15,7 +15,8 @@ public record AppProperties(
         Limits limits,
         Jobs jobs,
         Model model,
-        Retention retention) {
+        Retention retention,
+        String metricsToken) {
 
     public boolean isProduction() {
         return "production".equals(deployment);

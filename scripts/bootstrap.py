@@ -49,6 +49,17 @@ def render_env(example: str, machine_platform: str) -> str:
     return "\n".join(lines) + "\n"
 
 
+def missing_entries(example: str, existing: str, machine_platform: str) -> str:
+    """New settings for an existing .env. Values already there are never touched, so secrets stay as they were."""
+    have = parse_env(existing)
+    added = [
+        line
+        for line in render_env(example, machine_platform).splitlines()
+        if "=" in line and not line.startswith("#") and line.partition("=")[0].strip() not in have
+    ]
+    return "\n".join(added) + "\n" if added else ""
+
+
 def parse_env(text: str) -> dict[str, str]:
     values = {}
     for line in text.splitlines():
@@ -74,7 +85,16 @@ def main() -> None:
         write_private(env_path, render_env((ROOT / ".env.example").read_text(), host_platform()))
         print("created .env with generated secrets")
     else:
-        print(".env already exists, keeping it")
+        existing = env_path.read_text()
+        added = missing_entries((ROOT / ".env.example").read_text(), existing, host_platform())
+        if added:
+            # Through write_private, so appending can't loosen the file's permissions.
+            separator = "" if existing.endswith("\n") else "\n"
+            write_private(env_path, existing + separator + added)
+            names = [line.partition("=")[0] for line in added.splitlines()]
+            print(f".env already exists, added new settings: {', '.join(names)}")
+        else:
+            print(".env already exists, keeping it")
     values = parse_env(env_path.read_text())
 
     for source, name in DISK_RENDERED:

@@ -79,6 +79,15 @@ public class SecurityConfig {
         return decoder;
     }
 
+    /** Compared in constant time. With no token configured nothing matches, so metrics are closed by default. */
+    public static boolean metricsTokenMatches(String configured, String header) {
+        if (configured == null || configured.isBlank() || header == null) {
+            return false;
+        }
+        return java.security.MessageDigest.isEqual(("Bearer " + configured).getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                header.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
     public static JwtAuthenticationToken operatorAuthentication(Jwt token) {
         List<String> roles = token.getClaimAsStringList("roles");
         Collection<GrantedAuthority> authorities = new ArrayList<>();
@@ -110,6 +119,10 @@ public class SecurityConfig {
 
         return http.authorizeHttpRequests(auth -> auth
                         .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
+                        // A shared token as well as the proxy not routing it, so one mistake can't make metrics public.
+                        .requestMatchers("/actuator/prometheus").access((authentication, context) ->
+                                new org.springframework.security.authorization.AuthorizationDecision(
+                                        metricsTokenMatches(properties.metricsToken(), context.getRequest().getHeader(HttpHeaders.AUTHORIZATION))))
                         .requestMatchers("/actuator/**").denyAll()
                         .requestMatchers("/v3/api-docs/**").access((authentication, context) ->
                                 new org.springframework.security.authorization.AuthorizationDecision(!properties.isProduction()))

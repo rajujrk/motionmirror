@@ -254,6 +254,8 @@ def adapter_command(args: argparse.Namespace) -> int:
         result = api.deprecate(args.id)
     elif action == "rollback":
         result = api.rollback(args.preset)
+    elif action == "reconcile-after-restore":
+        result = api.reconcile_after_restore()
     else:
         result = api.list()
     print(json.dumps(result, indent=2))
@@ -306,6 +308,7 @@ def main(argv: list[str] | None = None) -> int:
             "promote",
             "deprecate",
             "rollback",
+            "reconcile-after-restore",
             "list",
         ],
     )

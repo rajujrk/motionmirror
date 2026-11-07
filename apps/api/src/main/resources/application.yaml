@@ -36,6 +36,8 @@ spring:
     username: ${MM_RABBIT_USERNAME:mm-publisher}
     password: ${MM_RABBIT_PUBLISHER_PASSWORD:}
     virtual-host: motionmirror
+    ssl:
+      enabled: ${MM_RABBIT_TLS:false}
     publisher-confirm-type: correlated
     publisher-returns: true
     template:
@@ -48,6 +50,8 @@ spring:
       port: ${MM_REDIS_PORT:56379}
       username: ${MM_REDIS_USERNAME:mm-api}
       password: ${MM_REDIS_PASSWORD:}
+      ssl:
+        enabled: ${MM_REDIS_TLS:false}
       timeout: 500ms
       connect-timeout: 500ms
 
@@ -56,10 +60,24 @@ management:
     web:
       exposure:
         include: health,info,prometheus
+  tracing:
+    sampling:
+      probability: ${MM_TRACE_SAMPLING:1.0}
+    export:
+      enabled: ${MM_TRACING_ENABLED:false}
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${MM_OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
   endpoint:
     health:
       probes:
         enabled: true
+      # Liveness stays free of dependencies, so a broker outage never gets a healthy API restarted.
+      group:
+        readiness:
+          include: readinessState,db
       show-details: never
   health:
     rabbit:
@@ -73,6 +91,7 @@ springdoc:
   paths-to-match: /api/v1/**
 
 motionmirror:
+  metrics-token: ${MM_METRICS_TOKEN:}
   deployment: ${MM_DEPLOYMENT:local}
   public-origin: ${MM_PUBLIC_ORIGIN:http://localhost:8088}
   retention:
@@ -93,6 +112,7 @@ motionmirror:
     admin-audience: motionmirror-admin
     worker-backends:
       motionmirror-worker-mock: [mock]
+      motionmirror-worker-validate: [media-validate]
       motionmirror-worker-wan: [wan-animate, real-preprocess]
   storage:
     internal-endpoint: ${MM_S3_INTERNAL_ENDPOINT:http://localhost:58333}
@@ -113,6 +133,8 @@ motionmirror:
     submissions-per-minute: ${MM_SUBMISSIONS_PER_MINUTE:20}
     upload-intents-per-minute: ${MM_UPLOAD_INTENTS_PER_MINUTE:60}
   jobs:
+    # What the broker is actually configured with. It can't be read from here, so startup trusts this value.
+    broker-consumer-timeout-ms: ${MM_RABBIT_CONSUMER_TIMEOUT_MS:21600000}
     lease-ttl: ${MM_LEASE_TTL:2m}
     max-attempts: ${MM_MAX_ATTEMPTS:3}
     retry-base-delay: ${MM_RETRY_BASE_DELAY:30s}

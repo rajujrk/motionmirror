@@ -46,7 +46,18 @@ def worker_environments(env: dict[str, str], generate: str, device: str) -> dict
         "MM_AMQP_URL": amqp_url(env, "mm-consumer-wan", "MM_RABBIT_CONSUMER_WAN_PASSWORD"),
         "MM_DEVICE_PROFILE": device,
     }
-    workers = {}
+    workers = {
+        "validate": {
+            **shared,
+            "MM_WORKER_ID": "native-validate",
+            "MM_BACKEND": "media-validate",
+            "MM_DEVICE_PROFILE": "cpu",
+            "MM_OIDC_CLIENT_ID": "motionmirror-worker-validate",
+            "MM_OIDC_CLIENT_SECRET": env["MM_WORKER_VALIDATE_CLIENT_SECRET"],
+            "MM_AMQP_URL": amqp_url(env, "mm-consumer-validate", "MM_RABBIT_CONSUMER_VALIDATE_PASSWORD"),
+            "MM_QUEUES": "motionmirror.validate.v1",
+        }
+    }
     if generate == "mock":
         workers["preprocess"] = {
             **real,

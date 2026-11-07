@@ -94,6 +94,18 @@
       "optionalClientScopes": []
     },
     {
+      "clientId": "motionmirror-worker-validate",
+      "name": "Upload validation worker service account",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "${MM_WORKER_VALIDATE_CLIENT_SECRET}",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "defaultClientScopes": ["worker"],
+      "optionalClientScopes": []
+    },
+    {
       "clientId": "motionmirror-worker-mock",
       "name": "Mock worker service account",
       "enabled": true,

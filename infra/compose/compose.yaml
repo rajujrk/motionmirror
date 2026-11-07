@@ -88,6 +88,7 @@ services:
       # Keycloak fills the ${...} placeholders in the realm file from these at import.
       MM_PUBLIC_ORIGIN: ${MM_PUBLIC_ORIGIN}
       MM_WEB_CLIENT_SECRET: ${MM_WEB_CLIENT_SECRET}
+      MM_WORKER_VALIDATE_CLIENT_SECRET: ${MM_WORKER_VALIDATE_CLIENT_SECRET}
       MM_WORKER_MOCK_CLIENT_SECRET: ${MM_WORKER_MOCK_CLIENT_SECRET}
       MM_WORKER_WAN_CLIENT_SECRET: ${MM_WORKER_WAN_CLIENT_SECRET}
       MM_DEV_USER_PASSWORD: ${MM_DEV_USER_PASSWORD}
@@ -147,6 +148,9 @@ services:
       MM_GENERATE_BACKEND: ${MM_GENERATE_BACKEND:-mock}
       MM_PREPROCESS_BACKEND: ${MM_PREPROCESS_BACKEND:-mock}
       MM_RETENTION_PROJECT_DAYS: ${MM_RETENTION_PROJECT_DAYS:-0}
+      MM_METRICS_TOKEN: ${MM_METRICS_TOKEN:-}
+      MM_TRACING_ENABLED: ${MM_TRACING_ENABLED:-false}
+      MM_OTLP_TRACES_ENDPOINT: ${MM_OTLP_TRACES_ENDPOINT:-http://tempo:4318/v1/traces}
       MM_S3_INTERNAL_ENDPOINT: http://seaweedfs:8333
       MM_S3_PUBLIC_ENDPOINT: ${MM_S3_PUBLIC_ENDPOINT}
       MM_S3_ACCESS_KEY: ${MM_S3_ACCESS_KEY}
@@ -191,14 +195,47 @@ services:
     ports: ["127.0.0.1:${MM_HTTP_PORT}:8080"]
     depends_on: [api, web, keycloak]
 
+  # Checks uploads with no GPU in any mode, so a GPU worker never has to stay up just to accept a file.
+  worker-validate:
+    <<: *platform
+    profiles: [lite, full, gpu]
+    build: {context: ../../, dockerfile: services/ml-worker/Dockerfile}
+    image: motionmirror/worker-mock:dev
+    environment:
+      MM_WORKER_ID: validate-1
+      MM_BACKEND: media-validate
+      MM_API_BASE_URL: http://api:8081
+      MM_OIDC_TOKEN_URL: http://keycloak:8080/auth/realms/motionmirror/protocol/openid-connect/token
+      MM_OIDC_CLIENT_ID: motionmirror-worker-validate
+      MM_OIDC_CLIENT_SECRET: ${MM_WORKER_VALIDATE_CLIENT_SECRET}
+      MM_AMQP_URL: amqp://mm-consumer-validate:${MM_RABBIT_CONSUMER_VALIDATE_PASSWORD}@rabbitmq:5672/motionmirror
+      MM_QUEUES: motionmirror.validate.v1
+      MM_CLAMD_HOST: ${MM_CLAMD_HOST:-}
+      MM_OTLP_TRACES_ENDPOINT: ${MM_WORKER_OTLP_ENDPOINT:-}
+    depends_on:
+      api: {condition: service_healthy}
+
+  # The public-deployment security profile. Downloads about 300 MB of definitions on first start, then keeps them fresh.
+  clamav:
+    <<: *platform
+    profiles: [security]
+    image: clamav/clamav:1.5.4@sha256:6d87c712e3391e13c1ba6e05dfb074d4b1ddb5a6834b23bb9da990d2a4ef042a
+    volumes:
+      - ../clamav/clamd.conf:/etc/clamav/clamd.conf:ro
+      - clamav-data:/var/lib/clamav
+
   worker-mock:
     <<: *platform
     profiles: [lite, full]
     build: {context: ../../, dockerfile: services/ml-worker/Dockerfile}
     image: motionmirror/worker-mock:dev
+    # Longer than the drain, so a running attempt gets its chance and reports what happened.
+    stop_grace_period: 90s
     environment:
       MM_WORKER_ID: mock-1
+      MM_DRAIN_SECONDS: "60"
       MM_BACKEND: mock
+      MM_OTLP_TRACES_ENDPOINT: ${MM_WORKER_OTLP_ENDPOINT:-}
       MM_API_BASE_URL: http://api:8081
       MM_OIDC_TOKEN_URL: http://keycloak:8080/auth/realms/motionmirror/protocol/openid-connect/token
       MM_OIDC_CLIENT_ID: motionmirror-worker-mock
@@ -207,6 +244,51 @@ services:
       MM_QUEUES: motionmirror.preprocess.mock.v1,motionmirror.generate.mock.v1
     depends_on:
       api: {condition: service_healthy}
+
+  prometheus:
+    <<: *platform
+    profiles: [full]
+    image: prom/prometheus:v3.16.0@sha256:e04987641b57704f408e31f6373ba4138ecf27cb4a165d24aabb6c38fddd0f06
+    # The token goes into tmpfs from the environment, so it never reaches the host disk.
+    entrypoint:
+      - sh
+      - -ec
+      - |
+        printf %s "$$MM_METRICS_TOKEN" > /run/mm/metrics-token
+        exec /bin/prometheus --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --storage.tsdb.retention.time=7d
+    environment:
+      MM_METRICS_TOKEN: ${MM_METRICS_TOKEN:-}
+    tmpfs: ["/run/mm:uid=65534,mode=0700"]
+    volumes:
+      - ../observability/prometheus:/etc/prometheus:ro
+      - prometheus-data:/prometheus
+    ports: ["127.0.0.1:${MM_HOST_PROMETHEUS_PORT:-59090}:9090"]
+
+  tempo:
+    <<: *platform
+    profiles: [full]
+    image: grafana/tempo:2.10.10@sha256:12b0820f13ffa10ce956b6e9acc3b03f3cffded99109be6cc09d106fe56e5d38
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ../observability/tempo:/etc/tempo:ro
+      - tempo-data:/var/tempo
+    ports: ["127.0.0.1:${MM_HOST_TEMPO_PORT:-53200}:3200"]
+
+  grafana:
+    <<: *platform
+    profiles: [full]
+    image: grafana/grafana:13.3.0@sha256:488984b716c0862639f91a698adbe2862677a5a07bad42da5f03f3030883b205
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${MM_GRAFANA_ADMIN_PASSWORD:-}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - ../observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports: ["127.0.0.1:${MM_HOST_GRAFANA_PORT:-53000}:3000"]
+    depends_on: [prometheus, tempo]
 
   # linux/amd64 on purpose: the CUDA wheels only exist there. Weights come from the host and are never in the image.
   worker-wan:
@@ -219,9 +301,12 @@ services:
       platforms: [linux/amd64]
     image: ${MM_WORKER_WAN_IMAGE:-motionmirror/worker-wan:dev}
     gpus: all
+    stop_grace_period: 90s
     environment:
       MM_WORKER_ID: wan-1
+      MM_DRAIN_SECONDS: "60"
       MM_BACKEND: wan-animate
+      MM_OTLP_TRACES_ENDPOINT: ${MM_WORKER_OTLP_ENDPOINT:-}
       MM_DEVICE_PROFILE: cuda
       MM_WAN_DTYPE: ${MM_WAN_DTYPE:-bfloat16}
       MM_WAN_OFFLOAD: ${MM_WAN_OFFLOAD:-model}
@@ -238,6 +323,10 @@ services:
       api: {condition: service_healthy}
 
 volumes:
+  clamav-data:
+  prometheus-data:
+  tempo-data:
+  grafana-data:
   postgres-data:
   rabbitmq-data:
   seaweedfs-data:

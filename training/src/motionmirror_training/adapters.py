@@ -169,3 +169,6 @@ class AdminApi:
 
     def list(self) -> dict[str, Any]:
         return dict(self._call("/api/v1/admin/adapters"))
+
+    def reconcile_after_restore(self) -> dict[str, Any]:
+        return dict(self._call("/api/v1/admin/retention/reconcile-after-restore", {}))

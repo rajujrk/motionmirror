@@ -1,0 +1,11 @@
+# Short deadlines and a held mock job, so failure recovery can be tested in minutes. Only for make test-failure-recovery.
+services:
+  api:
+    environment:
+      MM_LEASE_TTL: 20s
+      MM_RECONCILE_INTERVAL: 3s
+      MM_RETRY_BASE_DELAY: 2s
+  worker-mock:
+    environment:
+      MM_MOCK_HOLD_SECONDS: "15"
+      MM_HEARTBEAT_SECONDS: "3"

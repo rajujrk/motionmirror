@@ -44,6 +44,8 @@ public class LeaseService {
     public record AttemptRow(UUID id, UUID jobId, int attemptNo, long fencingToken, String state, Instant leaseExpiresAt, String workerId) {}
 
     private static final String PROBE_TYPE = "text/plain";
+    private static final Set<String> INFRASTRUCTURE_FAILURES = Set.of("STORAGE_ERROR", "SCANNER_UNAVAILABLE");
+    private static final int MAX_INFRASTRUCTURE_RETRIES = 6;
 
     private final JdbcClient jdbc;
     private final JobStore jobs;
@@ -224,7 +226,8 @@ public class LeaseService {
             handlers.onFailed(job, "CANCELLED", "Cancelled by the user");
             return JobState.CANCELLED;
         }
-        boolean attemptsRemain = currentAttemptCount(jobId) < job.maxAttempts();
+        int allowedAttempts = job.maxAttempts() + (retryable && allowAnotherForInfrastructure(jobId, code) ? 1 : 0);
+        boolean attemptsRemain = currentAttemptCount(jobId) < allowedAttempts;
         if (retryable && attemptsRemain && !NEVER_RETRY.contains(code)) {
             long delayMillis = properties.jobs().retryBaseDelay().toMillis() << Math.min(currentAttemptCount(jobId) - 1, 6);
             Instant next = Instant.now().plusMillis(delayMillis);
@@ -236,6 +239,23 @@ public class LeaseService {
         jobs.addEvent(jobId, "FAILED", Map.of("code", code));
         handlers.onFailed(job, code, detail);
         return JobState.FAILED;
+    }
+
+    /**
+     * An outage isn't the job's fault, so it mustn't use up the job's attempts. Otherwise a few minutes of storage
+     * downtime would permanently fail every running job. This has its own limit, so a lasting fault still ends.
+     */
+    private boolean allowAnotherForInfrastructure(UUID jobId, String code) {
+        if (!INFRASTRUCTURE_FAILURES.contains(code)) {
+            return false;
+        }
+        long failures = jdbc.sql("SELECT count(*) FROM job_attempts WHERE job_id = :job AND failure_code IN (:codes)")
+                .param("job", jobId).param("codes", INFRASTRUCTURE_FAILURES).query(Long.class).single();
+        if (failures > MAX_INFRASTRUCTURE_RETRIES) {
+            return false;
+        }
+        jdbc.sql("UPDATE generation_jobs SET max_attempts = max_attempts + 1 WHERE id = :job").param("job", jobId).update();
+        return true;
     }
 
     private int currentAttemptCount(UUID jobId) {

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
+import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -12,7 +15,7 @@ from typing import Any
 import httpx
 import pytest
 
-from motionmirror.worker.api_client import Lease, LeaseLost
+from motionmirror.worker.api_client import ApiUnavailable, Lease, LeaseLost
 from motionmirror.worker.runner import AttemptRunner
 from motionmirror.worker.settings import WorkerSettings
 
@@ -83,9 +86,16 @@ def child(tmp_path: Path, body: str) -> list[str]:
 
 
 def runner(
-    api: FakeApi, tmp_path: Path, command: list[str], heartbeat: float = 0.05, max_seconds: float = 30
+    api: FakeApi,
+    tmp_path: Path,
+    command: list[str],
+    heartbeat: float = 0.05,
+    max_seconds: float = 30,
+    upload_retries: tuple[float, ...] = (),
 ) -> AttemptRunner:
-    return AttemptRunner(api, tmp_path / "scratch", heartbeat, max_seconds, 2, child_command=command)  # type: ignore[arg-type]
+    return AttemptRunner(
+        api, tmp_path / "scratch", heartbeat, max_seconds, 2, child_command=command, upload_retry_delays=upload_retries
+    )  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio
@@ -358,3 +368,139 @@ def test_a_worker_advertises_the_adapters_it_holds(tmp_path: Path) -> None:
         scratch_dir=tmp_path,
     )
     assert describe(settings)["adapters"] == ["abc"]
+
+
+@pytest.mark.asyncio
+async def test_an_expired_signed_url_is_retried_with_a_fresh_one(tmp_path: Path) -> None:
+    """Storage answers 403 once a URL expires. Each attempt asks for new URLs, so a retry isn't stuck with old ones."""
+    expired = httpx.HTTPStatusError(
+        "expired",
+        request=httpx.Request("PUT", "https://write/x"),
+        response=httpx.Response(403),
+    )
+    api = FakeApi()
+    api.upload_error = expired
+    body = """
+out = workspace / "result.json"; out.write_text("{}")
+output = {"name": "result.json", "path": str(out), "content_type": "application/json"}
+(workspace / "attempt_result.json").write_text(json.dumps({"ok": True, "outputs": [output]}))
+"""
+    assert await runner(api, tmp_path, child(tmp_path, body)).run(LEASE) == "FAILED"
+    assert ("fail", "STORAGE_ERROR", True) in api.calls
+
+
+@pytest.mark.asyncio
+async def test_stopping_an_attempt_reports_a_retryable_failure_at_once(tmp_path: Path) -> None:
+    api = FakeApi()
+    attempt = runner(api, tmp_path, child(tmp_path, "time.sleep(60)"))
+    running = asyncio.create_task(attempt.run(LEASE))
+    await asyncio.sleep(0.5)
+    await attempt.stop_active()
+    assert await asyncio.wait_for(running, timeout=10) == "FAILED"
+    assert ("fail", "WORKER_CRASHED", True) in api.calls
+
+
+@pytest.mark.asyncio
+async def test_stopping_when_nothing_is_running_does_nothing(tmp_path: Path) -> None:
+    await runner(FakeApi(), tmp_path, child(tmp_path, "")).stop_active()
+
+
+def test_an_attempt_exits_by_itself_when_its_supervisor_is_killed(tmp_path: Path) -> None:
+    """Otherwise it would hold the GPU for work nobody can report."""
+    pid_file = tmp_path / "child.pid"
+    grandchild = (
+        "import os, time, pathlib\n"
+        "from motionmirror.worker.child import exit_when_orphaned\n"
+        "exit_when_orphaned(os.getppid(), 0.1)\n"
+        f"pathlib.Path({str(pid_file)!r}).write_text(str(os.getpid()))\n"
+        "time.sleep(60)\n"
+    )
+    supervisor = (
+        "import subprocess, sys, time, pathlib\n"
+        f"subprocess.Popen([sys.executable, '-c', {grandchild!r}])\n"
+        f"while not pathlib.Path({str(pid_file)!r}).exists(): time.sleep(0.05)\n"
+    )
+    subprocess.run([sys.executable, "-c", supervisor], check=True, timeout=30)
+    pid = int(pid_file.read_text())
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return
+        time.sleep(0.1)
+    os.kill(pid, 9)
+    pytest.fail("the attempt outlived its supervisor")
+
+
+class FlakyStorageApi(FakeApi):
+    """Storage fails a set number of times and then recovers, with each attempt asking for new URLs."""
+
+    def __init__(self, failures: int) -> None:
+        super().__init__()
+        self.failures_left = failures
+        self.access_requests = 0
+
+    async def artifact_access(self, lease: Lease, reads: list[str], writes: list[str]) -> dict[str, Any]:
+        if writes:
+            self.access_requests += 1
+        return await super().artifact_access(lease, reads, writes)
+
+    async def upload(self, url: str, path: Path, content_type: str) -> None:
+        if self.failures_left:
+            self.failures_left -= 1
+            raise httpx.ConnectError("storage is down")
+        await super().upload(url, path, content_type)
+
+
+FINISHED_CHILD = """
+out = workspace / "result.json"; out.write_text("{}")
+output = {"name": "result.json", "path": str(out), "content_type": "application/json"}
+(workspace / "attempt_result.json").write_text(json.dumps({"ok": True, "outputs": [output]}))
+"""
+
+
+@pytest.mark.asyncio
+async def test_a_storage_blip_during_upload_keeps_the_finished_result(tmp_path: Path) -> None:
+    api = FlakyStorageApi(failures=2)
+    attempt = runner(api, tmp_path, child(tmp_path, FINISHED_CHILD), upload_retries=(0, 0, 0))
+    assert await attempt.run(LEASE) == "SUCCEEDED"
+    assert not [call for call in api.calls if call[0] == "fail"], "the attempt, and its GPU time, were not thrown away"
+    assert api.access_requests == 3, "each try gets fresh URLs, in case the old ones expired"
+
+
+@pytest.mark.asyncio
+async def test_a_lasting_storage_outage_still_ends_in_a_retryable_failure(tmp_path: Path) -> None:
+    api = FlakyStorageApi(failures=99)
+    attempt = runner(api, tmp_path, child(tmp_path, FINISHED_CHILD), upload_retries=(0, 0))
+    assert await attempt.run(LEASE) == "FAILED"
+    assert ("fail", "STORAGE_ERROR", True) in api.calls
+
+
+@pytest.mark.asyncio
+async def test_heartbeats_continue_during_a_slow_upload(tmp_path: Path) -> None:
+    """Otherwise a slow upload from a remote GPU loses its lease, and a finished result with it."""
+
+    class SlowUpload(FakeApi):
+        async def upload(self, url: str, path: Path, content_type: str) -> None:
+            before = self.heartbeats
+            await asyncio.sleep(0.3)
+            self.during_upload = self.heartbeats - before
+
+    api = SlowUpload()
+    assert await runner(api, tmp_path, child(tmp_path, FINISHED_CHILD), heartbeat=0.05).run(LEASE) == "SUCCEEDED"
+    assert api.during_upload >= 2
+
+
+@pytest.mark.asyncio
+async def test_a_heartbeat_outage_during_upload_doesnt_stop_it(tmp_path: Path) -> None:
+    class NoControlPlane(FakeApi):
+        async def heartbeat(self, lease: Lease) -> bool:
+            raise ApiUnavailable("down")
+
+        async def upload(self, url: str, path: Path, content_type: str) -> None:
+            await asyncio.sleep(0.2)
+            await super().upload(url, path, content_type)
+
+    api = NoControlPlane()
+    assert await runner(api, tmp_path, child(tmp_path, FINISHED_CHILD), heartbeat=0.05).run(LEASE) == "SUCCEEDED"

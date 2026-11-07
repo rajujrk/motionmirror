@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Any
@@ -114,3 +115,73 @@ async def test_failing_to_record_the_outcome_does_not_ack() -> None:
     log: list[str] = []
     await handler(FakeApi(LEASE), FakeRunner(log, ApiUnavailable("down"))).handle(FakeMessage(log=log))
     assert log == ["run", "nack(requeue=True)"]
+
+
+class SlowRunner:
+    """Holds an attempt open until told to stop, as a long generation would."""
+
+    def __init__(self, finish_after: float | None = None) -> None:
+        self.finish_after = finish_after
+        self.stopped = False
+        self.release = asyncio.Event()
+
+    async def wait(self) -> None:
+        if self.finish_after is not None:
+            await asyncio.sleep(self.finish_after)
+            return
+        await self.release.wait()
+
+    async def stop_active(self) -> None:
+        self.stopped = True
+        self.release.set()
+
+
+@pytest.mark.asyncio
+async def test_draining_with_nothing_running_returns_at_once() -> None:
+    handler = TaskHandler(None, SlowRunner(), "worker")  # type: ignore[arg-type]
+    await asyncio.wait_for(handler.drain(30), timeout=1)
+
+
+@pytest.mark.asyncio
+async def test_draining_waits_for_a_running_attempt_that_finishes_in_time() -> None:
+    runner = SlowRunner(finish_after=0.1)
+    handler = TaskHandler(None, runner, "worker")  # type: ignore[arg-type]
+
+    async def attempt() -> None:
+        await runner.wait()
+
+    handler._handle = lambda _message: attempt()  # type: ignore[method-assign]
+    running = asyncio.create_task(handler.handle(object()))  # type: ignore[arg-type]
+    await asyncio.sleep(0.01)
+    await handler.drain(5)
+    assert running.done()
+    assert runner.stopped is False, "it finished by itself"
+
+
+@pytest.mark.asyncio
+async def test_draining_stops_an_attempt_that_runs_past_the_limit() -> None:
+    runner = SlowRunner()
+    handler = TaskHandler(None, runner, "worker")  # type: ignore[arg-type]
+
+    async def attempt() -> None:
+        await runner.wait()
+
+    handler._handle = lambda _message: attempt()  # type: ignore[method-assign]
+    running = asyncio.create_task(handler.handle(object()))  # type: ignore[arg-type]
+    await asyncio.sleep(0.01)
+    await asyncio.wait_for(handler.drain(0.05), timeout=2)
+    assert runner.stopped is True
+    assert running.done()
+
+
+@pytest.mark.asyncio
+async def test_a_failing_attempt_still_counts_as_finished_for_draining() -> None:
+    handler = TaskHandler(None, SlowRunner(), "worker")  # type: ignore[arg-type]
+
+    async def attempt() -> None:
+        raise RuntimeError("boom")
+
+    handler._handle = lambda _message: attempt()  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError):
+        await handler.handle(object())  # type: ignore[arg-type]
+    await asyncio.wait_for(handler.drain(30), timeout=1)

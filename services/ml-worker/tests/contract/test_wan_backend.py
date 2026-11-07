@@ -302,3 +302,69 @@ def test_the_download_is_marked_as_ai_edited(source_clip: Path, reference: Path,
         capture_output=True, text=True, check=True,
     )  # fmt: skip
     assert "AI-edited" in tags.stdout
+
+
+def clip(path: Path, seconds: int, audio_tracks: int = 1, vfr: bool = False) -> Path:
+    arguments = ["-f", "lavfi", "-i", f"color=c=green:size={SIZE}x{SIZE}:rate={FPS}:duration={seconds}"]
+    for track in range(audio_tracks):
+        arguments += ["-f", "lavfi", "-i", f"sine=frequency={440 + track * 220}:duration={seconds}"]
+    arguments += ["-map", "0:v:0"]
+    for track in range(audio_tracks):
+        arguments += ["-map", f"{track + 1}:a:0"]
+    if vfr:
+        arguments += ["-vf", "select='not(mod(n\\,3))+lt(n\\,4)'", "-fps_mode", "vfr"]
+    arguments += ["-c:v", "libx264", "-pix_fmt", "yuv420p"]
+    if audio_tracks:
+        arguments += ["-c:a", "aac", "-shortest"]
+    run_ffmpeg(*arguments, str(path))
+    return path
+
+
+def test_a_silent_clip_gives_a_valid_silent_output(reference: Path, tmp_path: Path) -> None:
+    result, _ = run(clip(tmp_path / "silent.mp4", 3, audio_tracks=0), reference, tmp_path)
+    output = probe(result.video_path)
+    assert output.audio_streams == 0
+    assert output.duration_seconds == pytest.approx(2.0, abs=1 / FPS + 0.05)
+
+
+def test_several_audio_streams_keep_the_first_and_only_the_first(reference: Path, tmp_path: Path) -> None:
+    source = clip(tmp_path / "two_tracks.mp4", 3, audio_tracks=2)
+    assert probe(source).audio_streams == 2
+    result, _ = run(source, reference, tmp_path)
+    assert probe(result.video_path).audio_streams == 1
+
+
+def test_audio_can_be_dropped_on_request(source_clip: Path, reference: Path, tmp_path: Path) -> None:
+    result, _ = run(source_clip, reference, tmp_path, settings={"retain_audio": False})
+    assert probe(result.video_path).audio_streams == 0
+
+
+@pytest.mark.parametrize(("segment", "conditioning", "frames"), [(9, 1, 41), (13, 5, 37), (9, 1, 17)])
+def test_every_frame_survives_a_clip_of_many_segments(
+    reference: Path, tmp_path: Path, segment: int, conditioning: int, frames: int
+) -> None:
+    """The join between segments is where a frame could be lost or doubled, and the length would be the only sign."""
+    source = clip(tmp_path / "long.mp4", 6)
+    settings = {"segment_frame_length": segment, "prev_segment_conditioning_frames": conditioning}
+    result, context = run(source, reference, tmp_path, frames=frames, settings=settings)
+    assert len(read_frames(result.video_path, SIZE, SIZE)) == frames
+    assert probe(result.video_path).duration_seconds == pytest.approx(frames / FPS, abs=1 / FPS + 0.05)
+    reported = [event for event in context.events if event[0] == "generate" and event[1]]
+    assert reported[-1][1] == reported[-1][2]
+    effective = segment - conditioning
+    assert reported[-1][2] == max(1, (frames - conditioning + effective - 1) // effective)
+
+
+def test_a_variable_frame_rate_clip_is_timed_from_its_timestamps(reference: Path, tmp_path: Path) -> None:
+    result, _ = run(clip(tmp_path / "vfr.mp4", 3, vfr=True), reference, tmp_path)
+    assert probe(result.video_path).duration_seconds == pytest.approx(2.0, abs=1 / FPS + 0.05)
+
+
+def test_controls_of_different_lengths_are_refused(source_clip: Path, reference: Path, tmp_path: Path) -> None:
+    from motionmirror.worker.failures import AttemptFailure
+
+    controls = make_controls(tmp_path / "controls", 20)
+    write_video([np.full((SIZE, SIZE, 3), 40, dtype=np.uint8)] * 12, controls["src_mask.mp4"], FPS)
+    instance = backend()
+    with pytest.raises(AttemptFailure, match="different lengths"):
+        instance.generate(instance.prepare(request(source_clip, reference, controls)), Recording(tmp_path / "work"))

@@ -59,6 +59,7 @@ class DeletionIT {
     @Autowired ObjectStorage storage;
     @Autowired AuditService audit;
     @Autowired AppProperties properties;
+    @Autowired RestoreReconciler reconciler;
 
     private StoragePurger purger(ObjectStorage target) {
         return new StoragePurger(jdbc, target, audit, deletion, properties);
@@ -353,6 +354,94 @@ class DeletionIT {
 
         purger().purgeTombstones(Duration.ZERO);
         assertThat(client.send(HttpRequest.newBuilder(URI.create(probe.readUrl())).GET().build(), HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(404);
+    }
+
+    /** What a restore from before the deletion does: the data comes back, and the database forgets it was ever deleted. */
+    private void restoreBackupFromBeforeTheDeletion(UUID project, UUID asset) {
+        jdbc.sql("UPDATE projects SET status = 'ACTIVE', name = 'Restored' WHERE id = :id").param("id", project).update();
+        jdbc.sql("UPDATE assets SET status = 'READY', display_name = 'restored.mp4', media = '{}' WHERE id = :id").param("id", asset).update();
+        jdbc.sql("DELETE FROM deletion_log WHERE target_id IN (:project, :asset)").param("project", project).param("asset", asset).update();
+        jdbc.sql("DELETE FROM deletion_tombstones WHERE owner_id = (SELECT owner_id FROM projects WHERE id = :id)").param("id", project).update();
+    }
+
+    @Test
+    void aRestoredBackupDoesntBringDeletedDataBack() throws Exception {
+        UUID owner = fixtures.user();
+        UUID project = fixtures.project(owner);
+        UUID asset = fixtures.readyAsset(owner, project, "DRIVING_VIDEO");
+        String key = put("assets/" + owner + "/" + project + "/" + asset + "/original");
+        jdbc.sql("UPDATE assets SET object_key = :key WHERE id = :id").param("key", key).param("id", asset).update();
+        deletion.deleteProject(user(owner), project);
+        purger().exportDeletionLog();
+        purger().purgeTombstones(Duration.ZERO);
+
+        restoreBackupFromBeforeTheDeletion(project, asset);
+        assertThat(jdbc.sql("SELECT status FROM projects WHERE id = :id").param("id", project).query(String.class).single()).isEqualTo("ACTIVE");
+        // A restored bucket would bring the bytes back too.
+        put(key);
+
+        RestoreReconciler.Result result = reconciler.reconcile(user(fixtures.user()));
+        assertThat(result.reapplied()).isGreaterThanOrEqualTo(1);
+
+        assertThat(jdbc.sql("SELECT status FROM projects WHERE id = :id").param("id", project).query(String.class).single()).isEqualTo("DELETED");
+        assertThat(jdbc.sql("SELECT name FROM projects WHERE id = :id").param("id", project).query(String.class).single()).isEqualTo("Deleted project");
+        assertThat(jdbc.sql("SELECT status FROM assets WHERE id = :id").param("id", asset).query(String.class).single()).isEqualTo("DELETED");
+        purger().purgeTombstones(Duration.ZERO);
+        assertThat(storage.head(key)).as("the tombstones were recreated, so the bytes go again").isEmpty();
+    }
+
+    @Test
+    void reconcilingTwiceChangesNothingTheSecondTime() {
+        UUID owner = fixtures.user();
+        deletion.deleteProject(user(owner), fixtures.project(owner));
+        purger().exportDeletionLog();
+        reconciler.reconcile(user(owner));
+        RestoreReconciler.Result second = reconciler.reconcile(user(owner));
+        assertThat(second.reapplied()).isZero();
+        assertThat(second.recorded()).isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    void aDeletedAssetAndAResultComeBackGoneToo() throws Exception {
+        UUID owner = fixtures.user();
+        UUID project = fixtures.project(owner);
+        UUID photo = fixtures.readyAsset(owner, project, "TARGET_REFERENCE");
+        Ran result = ran(owner, project, JobKind.PREVIEW, Map.of());
+        deletion.deleteAsset(user(owner), photo);
+        deletion.deleteResult(user(owner), result.job().id());
+        purger().exportDeletionLog();
+
+        jdbc.sql("UPDATE assets SET status = 'READY' WHERE id = :id").param("id", photo).update();
+        JobRow restored = fixtures.queuedJob(owner, project, JobKind.PREVIEW);
+        jdbc.sql("UPDATE deletion_log SET target_id = :restored WHERE target_id = :old")
+                .param("restored", restored.id()).param("old", result.job().id()).update();
+        String recordId = jdbc.sql("SELECT id::text FROM deletion_log WHERE target_id = :id").param("id", restored.id()).query(String.class).single();
+        storage.writeText(RestoreReconciler.PREFIX + recordId + ".json", Json.write(Map.of("id", recordId, "kind", "RESULT",
+                "target_id", restored.id().toString(), "owner_id", owner.toString())));
+
+        reconciler.reconcile(user(owner));
+
+        assertThat(jdbc.sql("SELECT status FROM assets WHERE id = :id").param("id", photo).query(String.class).single()).isEqualTo("DELETED");
+        assertThat(jobs.find(restored.id())).isEmpty();
+    }
+
+    @Test
+    void theDeletionRecordHoldsIdsAndNothingPersonal() {
+        UUID owner = fixtures.user();
+        UUID project = fixtures.project(owner);
+        jdbc.sql("UPDATE projects SET name = 'My daughter dancing' WHERE id = :id").param("id", project).update();
+        deletion.deleteProject(user(owner), project);
+        purger().exportDeletionLog();
+        String id = jdbc.sql("SELECT id::text FROM deletion_log WHERE target_id = :id").param("id", project).query(String.class).single();
+        String record = storage.readText(RestoreReconciler.PREFIX + id + ".json");
+        assertThat(record).doesNotContain("daughter");
+        assertThat(Json.read(record).propertyNames()).containsExactlyInAnyOrder("id", "kind", "target_id", "owner_id");
+    }
+
+    @Test
+    void onlyAnAdministratorCanReconcile() throws Exception {
+        mvc.perform(post("/api/v1/admin/retention/reconcile-after-restore").with(login("plain-" + UUID.randomUUID())).with(csrf()))
+                .andExpect(status().isForbidden());
     }
 
     @Test

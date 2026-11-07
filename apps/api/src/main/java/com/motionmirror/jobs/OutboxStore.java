@@ -1,6 +1,8 @@
 package com.motionmirror.jobs;
 
 import com.motionmirror.shared.Json;
+import io.micrometer.tracing.Span;
+import io.micrometer.tracing.Tracer;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Duration;
@@ -8,7 +10,9 @@ import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -27,9 +31,22 @@ public class OutboxStore {
     private static final int SCHEMA_VERSION = 1;
 
     private final JdbcClient jdbc;
+    private final ObjectProvider<Tracer> tracer;
 
-    public OutboxStore(JdbcClient jdbc) {
+    public OutboxStore(JdbcClient jdbc, ObjectProvider<Tracer> tracer) {
         this.jdbc = jdbc;
+        this.tracer = tracer;
+    }
+
+    /** Lets a trace follow a job across the broker. It's only ids, as the envelope contract requires. */
+    private Optional<Map<String, String>> traceContext() {
+        Tracer current = tracer.getIfAvailable();
+        Span span = current == null ? null : current.currentSpan();
+        if (span == null) {
+            return Optional.empty();
+        }
+        String flags = Boolean.TRUE.equals(span.context().sampled()) ? "01" : "00";
+        return Optional.of(Map.of("traceparent", "00-" + span.context().traceId() + "-" + span.context().spanId() + "-" + flags));
     }
 
     /** Called in the same transaction as the job change, so a job and its dispatch commit or fail together. */
@@ -44,6 +61,7 @@ public class OutboxStore {
         envelope.put("backend_id", backendId);
         envelope.put("config_revision", configRevision);
         envelope.put("created_at", Instant.now().toString());
+        traceContext().ifPresent(trace -> envelope.put("trace", trace));
         jdbc.sql("""
                 INSERT INTO outbox_events (id, schema_version, job_id, dispatch_generation, routing_key, payload)
                 VALUES (:id, :version, :job, :generation, :routing, CAST(:payload AS jsonb))

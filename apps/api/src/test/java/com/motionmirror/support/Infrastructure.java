@@ -93,7 +93,7 @@ public final class Infrastructure implements ApplicationContextInitializer<Confi
 
     private static String rabbitDefinitions() {
         String template = read("configs/rabbitmq/definitions.template.json");
-        for (String name : new String[] {"PROVISION", "PUBLISHER", "CONSUMER_MOCK", "CONSUMER_WAN", "MONITOR"}) {
+        for (String name : new String[] {"PROVISION", "PUBLISHER", "CONSUMER_VALIDATE", "CONSUMER_MOCK", "CONSUMER_WAN", "MONITOR"}) {
             template = template.replace("${MM_RABBIT_" + name + "_PASSWORD_HASH}", rabbitHash(BROKER_PASSWORD));
         }
         return template.replace("${MM_RABBIT_CONSUMER_TIMEOUT_MS}", "21600000");

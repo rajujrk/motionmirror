@@ -23,6 +23,7 @@ OTHER_QUEUE = {
     "mock": "motionmirror.generate.wan-animate.v1",
     "wan-animate": "motionmirror.generate.mock.v1",
     "real-preprocess": "motionmirror.generate.mock.v1",
+    "media-validate": "motionmirror.generate.mock.v1",
 }
 PROBE_BODY = b"motionmirror storage probe"
 
