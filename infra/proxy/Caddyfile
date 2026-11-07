@@ -1,0 +1,14 @@
+# Same-origin routing for the browser. Local development is plain HTTP on loopback only.
+:8080 {
+	encode gzip
+	handle /auth/* {
+		reverse_proxy keycloak:8080
+	}
+	@backend path /api/* /oauth2/* /login/oauth2/* /logout /v3/api-docs*
+	handle @backend {
+		reverse_proxy api:8081
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+}

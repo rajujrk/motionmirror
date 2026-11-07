@@ -1,0 +1,3 @@
+user default off
+user mm-api on >${MM_REDIS_PASSWORD} ~mm:* &* -@all +@read +@write +@connection +@scripting +@transaction -keys -flushall -flushdb -config -shutdown
+user mm-doctor on >${MM_REDIS_PASSWORD} ~mm:doctor:* -@all +ping +info +set +get +del

@@ -1,0 +1,191 @@
+# Profiles: `lite` is the daily stack with the mock worker; `full` adds observability; `gpu` adds the real worker.
+# Image digests are multi-architecture indexes; `platform` comes from .env so a wrong architecture fails visibly.
+name: motionmirror
+
+x-platform: &platform
+  platform: ${MM_PLATFORM:?run make bootstrap}
+  restart: unless-stopped
+
+services:
+  postgres:
+    <<: *platform
+    image: postgres:18-alpine@sha256:123b17998ccaf47e53b502e8c6a1e79afd8f579c6f3eec83c563da026f957395
+    profiles: [lite, full, gpu]
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      MM_DB_PASSWORD: ${MM_DB_PASSWORD}
+      MM_KEYCLOAK_DB_PASSWORD: ${MM_KEYCLOAK_DB_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    ports: ["127.0.0.1:${MM_HOST_POSTGRES_PORT}:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres && psql -U postgres -lqt | grep -q keycloak"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  rabbitmq:
+    <<: *platform
+    image: rabbitmq:4.3-management-alpine@sha256:eb338b3fc8f5c251028c0022ac0de3fe1db2d599d1c6a08b45898f756f248881
+    profiles: [lite, full, gpu]
+    hostname: mm-rabbit
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ../../.data/runtime/rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf:ro
+      - ../../.data/runtime/rabbitmq/definitions.json:/etc/rabbitmq/definitions.json:ro
+    ports:
+      - "127.0.0.1:${MM_HOST_RABBIT_PORT}:5672"
+      - "127.0.0.1:${MM_HOST_RABBIT_MGMT_PORT}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+
+  redis:
+    <<: *platform
+    image: redis:8-alpine@sha256:71885d8cc6e42f2bc0aa2eb853bfc4be200b5108a46ac50e117ae1df0531fb80
+    profiles: [lite, full, gpu]
+    command:
+      - redis-server
+      - --aclfile
+      - /etc/redis/users.acl
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - noeviction
+      - --save
+      - ""
+    volumes:
+      - ../../.data/runtime/redis/users.acl:/etc/redis/users.acl:ro
+    ports: ["127.0.0.1:${MM_HOST_REDIS_PORT}:6379"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --user mm-doctor --pass \"$$MM_REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    environment:
+      MM_REDIS_PASSWORD: ${MM_REDIS_PASSWORD}
+
+  keycloak:
+    <<: *platform
+    image: quay.io/keycloak/keycloak:26.8.2@sha256:3879c623248408de29a5303178b5816c77e8dfef3890c361f8c0bbeaa979ba3b
+    profiles: [lite, full, gpu]
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${MM_KEYCLOAK_DB_PASSWORD}
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_BOOTSTRAP_ADMIN_USERNAME}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_BOOTSTRAP_ADMIN_PASSWORD}
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_HOSTNAME: ${MM_PUBLIC_ORIGIN}/auth
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+    volumes:
+      - ../../.data/runtime/keycloak:/opt/keycloak/data/import:ro
+    depends_on:
+      postgres: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /auth/health/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q '\"status\": \"UP\"' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
+
+  seaweedfs:
+    <<: *platform
+    image: chrislusf/seaweedfs:4.52@sha256:57877e32bb90073b37dc109b438ba66e84fd5ed9ced5f5c04f56444ef243ce59
+    profiles: [lite, full, gpu]
+    command: ["server", "-dir=/data", "-ip.bind=0.0.0.0", "-s3", "-s3.port=8333", "-s3.config=/etc/seaweedfs/s3.json", "-volume.max=8"]
+    volumes:
+      - seaweedfs-data:/data
+      - ../../.data/runtime/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+    ports: ["127.0.0.1:${MM_HOST_S3_PORT}:8333"]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8333/status || wget -q -S -O /dev/null http://127.0.0.1:8333/ 2>&1 | grep -q HTTP"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  api:
+    <<: *platform
+    profiles: [lite, full, gpu]
+    build: {context: ../../, dockerfile: apps/api/Dockerfile}
+    image: motionmirror/api:dev
+    environment:
+      MM_DEPLOYMENT: ${MM_DEPLOYMENT}
+      MM_PUBLIC_ORIGIN: ${MM_PUBLIC_ORIGIN}
+      MM_DB_URL: jdbc:postgresql://postgres:5432/motionmirror
+      MM_DB_PASSWORD: ${MM_DB_PASSWORD}
+      MM_RABBIT_HOST: rabbitmq
+      MM_RABBIT_PUBLISHER_PASSWORD: ${MM_RABBIT_PUBLISHER_PASSWORD}
+      MM_REDIS_HOST: redis
+      MM_REDIS_PASSWORD: ${MM_REDIS_PASSWORD}
+      MM_S3_INTERNAL_ENDPOINT: http://seaweedfs:8333
+      MM_S3_PUBLIC_ENDPOINT: ${MM_S3_PUBLIC_ENDPOINT}
+      MM_S3_ACCESS_KEY: ${MM_S3_ACCESS_KEY}
+      MM_S3_SECRET_KEY: ${MM_S3_SECRET_KEY}
+      MM_S3_BUCKET: ${MM_S3_BUCKET}
+      MM_OIDC_PUBLIC_ISSUER: ${MM_PUBLIC_ORIGIN}/auth/realms/motionmirror
+      MM_OIDC_INTERNAL_BASE: http://keycloak:8080/auth/realms/motionmirror
+      MM_WEB_CLIENT_SECRET: ${MM_WEB_CLIENT_SECRET}
+      MM_MAX_SOURCE_BYTES: ${MM_MAX_SOURCE_BYTES}
+      MM_MAX_SOURCE_SECONDS: ${MM_MAX_SOURCE_SECONDS}
+      MM_MAX_REFERENCE_BYTES: ${MM_MAX_REFERENCE_BYTES}
+      MM_MAX_ACTIVE_JOBS_PER_USER: ${MM_MAX_ACTIVE_JOBS_PER_USER}
+    depends_on:
+      postgres: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      keycloak: {condition: service_healthy}
+      seaweedfs: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8081/actuator/health/liveness"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  web:
+    <<: *platform
+    profiles: [lite, full, gpu]
+    build: {context: ../../, dockerfile: apps/web/Dockerfile}
+    image: motionmirror/web:dev
+    depends_on:
+      api: {condition: service_healthy}
+
+  caddy:
+    <<: *platform
+    image: caddy:2-alpine@sha256:78bd35025c7ba85961dd149ae670315129954e77abe2383ac47c89106b35ade9
+    profiles: [lite, full, gpu]
+    volumes:
+      - ../proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+    ports: ["127.0.0.1:${MM_HTTP_PORT}:8080"]
+    depends_on: [api, web, keycloak]
+
+  worker-mock:
+    <<: *platform
+    profiles: [lite, full]
+    build: {context: ../../, dockerfile: services/ml-worker/Dockerfile}
+    image: motionmirror/worker-mock:dev
+    environment:
+      MM_WORKER_ID: mock-1
+      MM_BACKEND: mock
+      MM_API_BASE_URL: http://api:8081
+      MM_OIDC_TOKEN_URL: http://keycloak:8080/auth/realms/motionmirror/protocol/openid-connect/token
+      MM_OIDC_CLIENT_ID: motionmirror-worker-mock
+      MM_OIDC_CLIENT_SECRET: ${MM_WORKER_MOCK_CLIENT_SECRET}
+      MM_AMQP_URL: amqp://mm-consumer-mock:${MM_RABBIT_CONSUMER_MOCK_PASSWORD}@rabbitmq:5672/motionmirror
+      MM_QUEUES: motionmirror.preprocess.mock.v1,motionmirror.generate.mock.v1
+    depends_on:
+      api: {condition: service_healthy}
+
+volumes:
+  postgres-data:
+  rabbitmq-data:
+  seaweedfs-data:

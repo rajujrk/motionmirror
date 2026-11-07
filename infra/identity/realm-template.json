@@ -1,0 +1,118 @@
+{
+  "realm": "motionmirror",
+  "enabled": true,
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "sslRequired": "external",
+  "bruteForceProtected": true,
+  "accessTokenLifespan": 300,
+  "roles": {"realm": [{"name": "USER"}, {"name": "ADMIN"}]},
+  "defaultRoles": ["USER"],
+  "clientScopes": [
+    {
+      "name": "worker",
+      "protocol": "openid-connect",
+      "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "false"},
+      "protocolMappers": [
+        {
+          "name": "internal-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {"included.custom.audience": "motionmirror-internal", "access.token.claim": "true", "id.token.claim": "false"}
+        }
+      ]
+    },
+    {
+      "name": "roles",
+      "protocol": "openid-connect",
+      "attributes": {"include.in.token.scope": "false", "display.on.consent.screen": "false"},
+      "protocolMappers": [
+        {
+          "name": "realm-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {"multivalued": "true", "claim.name": "roles", "jsonType.label": "String", "id.token.claim": "true", "access.token.claim": "true", "userinfo.token.claim": "true"}
+        }
+      ]
+    },
+    {
+      "name": "profile",
+      "protocol": "openid-connect",
+      "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "false"},
+      "protocolMappers": [
+        {"name": "name", "protocol": "openid-connect", "protocolMapper": "oidc-full-name-mapper", "config": {"id.token.claim": "true", "access.token.claim": "false", "userinfo.token.claim": "true"}}
+      ]
+    },
+    {
+      "name": "email",
+      "protocol": "openid-connect",
+      "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "false"},
+      "protocolMappers": [
+        {"name": "email", "protocol": "openid-connect", "protocolMapper": "oidc-usermodel-attribute-mapper", "config": {"user.attribute": "email", "claim.name": "email", "jsonType.label": "String", "id.token.claim": "true", "access.token.claim": "false", "userinfo.token.claim": "true"}}
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "motionmirror-web",
+      "name": "MotionMirror web application",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "${MM_WEB_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["${MM_PUBLIC_ORIGIN}/login/oauth2/code/keycloak"],
+      "webOrigins": ["${MM_PUBLIC_ORIGIN}"],
+      "attributes": {"pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "${MM_PUBLIC_ORIGIN}/"},
+      "defaultClientScopes": ["profile", "email", "roles"],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "motionmirror-worker-mock",
+      "name": "Mock worker service account",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "${MM_WORKER_MOCK_CLIENT_SECRET}",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "defaultClientScopes": ["worker"],
+      "optionalClientScopes": []
+    },
+    {
+      "clientId": "motionmirror-worker-wan",
+      "name": "GPU worker service account",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "${MM_WORKER_WAN_CLIENT_SECRET}",
+      "standardFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "defaultClientScopes": ["worker"],
+      "optionalClientScopes": []
+    }
+  ],
+  "users": [
+    {
+      "username": "dev.user",
+      "email": "dev.user@motionmirror.test",
+      "emailVerified": true,
+      "firstName": "Dev",
+      "lastName": "User",
+      "enabled": true,
+      "realmRoles": ["USER"],
+      "credentials": [{"type": "password", "value": "${MM_DEV_USER_PASSWORD}", "temporary": false}]
+    },
+    {
+      "username": "dev.admin",
+      "email": "dev.admin@motionmirror.test",
+      "emailVerified": true,
+      "firstName": "Dev",
+      "lastName": "Admin",
+      "enabled": true,
+      "realmRoles": ["USER", "ADMIN"],
+      "credentials": [{"type": "password", "value": "${MM_DEV_ADMIN_PASSWORD}", "temporary": false}]
+    }
+  ]
+}

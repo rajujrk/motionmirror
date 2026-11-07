@@ -1,0 +1,45 @@
+{
+  "rabbit_version": "4.3.0",
+  "users": [
+    {"name": "mm-provision", "password_hash": "${MM_RABBIT_PROVISION_PASSWORD_HASH}", "hashing_algorithm": "rabbit_password_hashing_sha256", "tags": ["administrator"]},
+    {"name": "mm-publisher", "password_hash": "${MM_RABBIT_PUBLISHER_PASSWORD_HASH}", "hashing_algorithm": "rabbit_password_hashing_sha256", "tags": []},
+    {"name": "mm-consumer-mock", "password_hash": "${MM_RABBIT_CONSUMER_MOCK_PASSWORD_HASH}", "hashing_algorithm": "rabbit_password_hashing_sha256", "tags": []},
+    {"name": "mm-consumer-wan", "password_hash": "${MM_RABBIT_CONSUMER_WAN_PASSWORD_HASH}", "hashing_algorithm": "rabbit_password_hashing_sha256", "tags": []},
+    {"name": "mm-monitor", "password_hash": "${MM_RABBIT_MONITOR_PASSWORD_HASH}", "hashing_algorithm": "rabbit_password_hashing_sha256", "tags": ["monitoring"]}
+  ],
+  "vhosts": [{"name": "motionmirror"}],
+  "permissions": [
+    {"user": "mm-provision", "vhost": "motionmirror", "configure": ".*", "write": ".*", "read": ".*"},
+    {"user": "mm-publisher", "vhost": "motionmirror", "configure": "^$", "write": "^motionmirror\\.tasks$", "read": "^$"},
+    {"user": "mm-consumer-mock", "vhost": "motionmirror", "configure": "^$", "write": "^motionmirror\\.(preprocess|generate)\\.mock\\.v1$|^motionmirror\\.dlx$", "read": "^motionmirror\\.(preprocess|generate)\\.mock\\.v1$"},
+    {"user": "mm-consumer-wan", "vhost": "motionmirror", "configure": "^$", "write": "^motionmirror\\.preprocess\\.v1$|^motionmirror\\.generate\\.wan-animate\\.v1$|^motionmirror\\.dlx$", "read": "^motionmirror\\.preprocess\\.v1$|^motionmirror\\.generate\\.wan-animate\\.v1$"},
+    {"user": "mm-monitor", "vhost": "motionmirror", "configure": "^$", "write": "^$", "read": "^$"}
+  ],
+  "exchanges": [
+    {"name": "motionmirror.tasks", "vhost": "motionmirror", "type": "direct", "durable": true, "auto_delete": false, "internal": false, "arguments": {}},
+    {"name": "motionmirror.dlx", "vhost": "motionmirror", "type": "direct", "durable": true, "auto_delete": false, "internal": false, "arguments": {}}
+  ],
+  "queues": [
+    {"name": "motionmirror.preprocess.v1", "vhost": "motionmirror", "durable": true, "auto_delete": false, "arguments": {"x-queue-type": "quorum", "x-dead-letter-exchange": "motionmirror.dlx", "x-dead-letter-routing-key": "dead.preprocess", "x-delivery-limit": 5, "x-max-length": 1000, "x-overflow": "reject-publish"}},
+    {"name": "motionmirror.preprocess.mock.v1", "vhost": "motionmirror", "durable": true, "auto_delete": false, "arguments": {"x-queue-type": "quorum", "x-dead-letter-exchange": "motionmirror.dlx", "x-dead-letter-routing-key": "dead.preprocess.mock", "x-delivery-limit": 5, "x-max-length": 1000, "x-overflow": "reject-publish"}},
+    {"name": "motionmirror.generate.wan-animate.v1", "vhost": "motionmirror", "durable": true, "auto_delete": false, "arguments": {"x-queue-type": "quorum", "x-dead-letter-exchange": "motionmirror.dlx", "x-dead-letter-routing-key": "dead.generate.wan", "x-delivery-limit": 5, "x-max-length": 1000, "x-overflow": "reject-publish"}},
+    {"name": "motionmirror.generate.mock.v1", "vhost": "motionmirror", "durable": true, "auto_delete": false, "arguments": {"x-queue-type": "quorum", "x-dead-letter-exchange": "motionmirror.dlx", "x-dead-letter-routing-key": "dead.generate.mock", "x-delivery-limit": 5, "x-max-length": 1000, "x-overflow": "reject-publish"}},
+    {"name": "motionmirror.dead.preprocess.v1", "vhost": "motionmirror", "durable": true, "auto_delete": false, "arguments": {"x-queue-type": "quorum"}},
+    {"name": "motionmirror.dead.preprocess.mock.v1", "vhost": "motionmirror", "durable": true, "auto_delete": false, "arguments": {"x-queue-type": "quorum"}},
+    {"name": "motionmirror.dead.generate.wan-animate.v1", "vhost": "motionmirror", "durable": true, "auto_delete": false, "arguments": {"x-queue-type": "quorum"}},
+    {"name": "motionmirror.dead.generate.mock.v1", "vhost": "motionmirror", "durable": true, "auto_delete": false, "arguments": {"x-queue-type": "quorum"}}
+  ],
+  "bindings": [
+    {"source": "motionmirror.tasks", "vhost": "motionmirror", "destination": "motionmirror.preprocess.v1", "destination_type": "queue", "routing_key": "preprocess.real", "arguments": {}},
+    {"source": "motionmirror.tasks", "vhost": "motionmirror", "destination": "motionmirror.preprocess.mock.v1", "destination_type": "queue", "routing_key": "preprocess.mock", "arguments": {}},
+    {"source": "motionmirror.tasks", "vhost": "motionmirror", "destination": "motionmirror.generate.wan-animate.v1", "destination_type": "queue", "routing_key": "generate.wan-animate", "arguments": {}},
+    {"source": "motionmirror.tasks", "vhost": "motionmirror", "destination": "motionmirror.generate.mock.v1", "destination_type": "queue", "routing_key": "generate.mock", "arguments": {}},
+    {"source": "motionmirror.dlx", "vhost": "motionmirror", "destination": "motionmirror.dead.preprocess.v1", "destination_type": "queue", "routing_key": "dead.preprocess", "arguments": {}},
+    {"source": "motionmirror.dlx", "vhost": "motionmirror", "destination": "motionmirror.dead.preprocess.mock.v1", "destination_type": "queue", "routing_key": "dead.preprocess.mock", "arguments": {}},
+    {"source": "motionmirror.dlx", "vhost": "motionmirror", "destination": "motionmirror.dead.generate.wan-animate.v1", "destination_type": "queue", "routing_key": "dead.generate.wan", "arguments": {}},
+    {"source": "motionmirror.dlx", "vhost": "motionmirror", "destination": "motionmirror.dead.generate.mock.v1", "destination_type": "queue", "routing_key": "dead.generate.mock", "arguments": {}}
+  ],
+  "policies": [
+    {"vhost": "motionmirror", "name": "long-gpu-attempts", "pattern": "^motionmirror\\.(generate|preprocess)\\.", "apply-to": "queues", "priority": 1, "definition": {"consumer-timeout": ${MM_RABBIT_CONSUMER_TIMEOUT_MS}}}
+  ]
+}
