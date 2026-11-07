@@ -109,6 +109,27 @@ def test_clip_no_longer_than_the_conditioning_frames_fails(pipe: Any, num_frames
         )
 
 
+def test_precomputed_image_features_cant_be_passed_in(pipe: Any) -> None:
+    """Pins an upstream limit: the reference image is also needed for its VAE latents, yet passing it alongside
+    `image_embeds` is refused, and leaving it out fails. So `image_embeds` can't be used at all."""
+    inputs = replacement_inputs()
+    features = pipe.encode_image(inputs["image"], pipe.device)
+    with pytest.raises(ValueError, match="Cannot forward both"):
+        pipe(**inputs, image_embeds=features)
+    without_image = {key: value for key, value in inputs.items() if key != "image"}
+    with pytest.raises(Exception):  # noqa: B017 - any failure: upstream reads the missing image unguarded
+        pipe(**without_image, image_embeds=features)
+
+
+def test_image_features_can_be_reused_through_encode_image(pipe: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    """What `spike_mac` relies on to free the image encoder before the transformer loads. Exact on the CPU; on MPS
+    the separately computed features differ by about one float32 rounding step (measured 1.2e-7)."""
+    expected = run(pipe)
+    features = pipe.encode_image(replacement_inputs()["image"], pipe.device)
+    monkeypatch.setattr(pipe, "encode_image", lambda image, device=None: features)
+    torch.testing.assert_close(run(pipe), expected, rtol=0, atol=1e-6)
+
+
 def test_white_mask_means_generate_and_black_means_preserve(pipe: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     """Inside the pipeline a known region is 1, so a white input must become 0 (unknown)."""
     captured: list[torch.Tensor] = []

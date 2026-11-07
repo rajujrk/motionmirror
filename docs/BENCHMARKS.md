@@ -58,12 +58,46 @@ CoreML gives no meaningful gain, and session creation takes longer, so pose stay
 | Skeleton pixels inside the dancer's box | Mean 0.998, min 0.844 |
 | Background pixels inside the person | Mean brightness 0.0 |
 
+## Real Wan-Animate 14B from Q2_K GGUF, toy size
+
+448x256, 9 frames, 4 steps, blank gray inputs, labelled `experimental`. Encoders on the CPU, transformer on MPS.
+
+| Measurement | Value |
+| --- | --- |
+| Prompt encoding (T5, CPU) | 31.3 s |
+| Transformer load | 50.1 s |
+| Per denoising step | About 85 s |
+| Generation, including VAE decode | 380 s |
+| Whole run | 475 s |
+| Peak RSS | 6.70 GB |
+| MPS driver memory | 10.97 GB at the end |
+
+It ran, which is all it shows. See `docs/MAC_APPLE_SILICON.md` for what this means at real sizes.
+
+## Training samples and smoke runs
+
+Real clips, the dataset's own masks, real ViTPose. Each sample is a reference frame plus 80 targets, with 77 control frames for each of pose, face, background and mask, which the frame counts confirm.
+
+| Build | Samples | Splits | Rejected | Time | Per sample | Peak RSS |
+| --- | --- | --- | --- | --- | --- | --- |
+| `LIMIT=3` | 3 | 3 train, from one group | 2 too short | 232 s | 77 s | |
+| `CLIPS=` 7 named clips | 7 | 3 train, 2 validation, 2 test | 0 | 530 s | 76 s | 3.56 GB |
+
+The fixed evaluation set from the 7-clip build is `00157` and `00058`. The built samples took 26 MB for 3.
+
+| Smoke run on the 7-clip build | Device | Trained on | Steps | Time | Peak host memory | Loss, first to last | Verified |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `cpu-smoke` | CPU | The 3 train clips only | 8 | 7.0 s | 0.41 GB | 1.385 to 1.326 | 20 layers attached, output changed |
+| `mac-mps` | MPS | The 3 train clips only | 8 | 5.3 s | 0.62 GB | 1.385 to 1.326 | 20 layers attached, output changed |
+
+The two devices produced the same losses to three decimals from the same seed. Their exported adapters differ in hash, as low-order floating point differs between devices. These are tiny random weights: the runs prove the data path, an optimizer step, checkpoints and export, not quality.
+
 ## Pending
 
 | Measurement | Status |
 | --- | --- |
 | Real generation: GPU memory, time, cold and warm start | `pending GPU validation` |
 | Real training: step time, peak memory | `pending GPU validation` |
-| Real generation on this Mac from Q2_K GGUF | See `docs/MAC_APPLE_SILICON.md` |
+| Real generation on this Mac at a useful size | Not attempted: estimated at 35 minutes or more per step. The toy-size run is below |
 | Control-plane load (`make test-load`) | See `docs/IMPLEMENTATION_STATUS.md` |
 | RAM and disk per Compose profile | See `docs/MAC_APPLE_SILICON.md` |

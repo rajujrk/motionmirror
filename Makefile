@@ -126,8 +126,8 @@ benchmark-gpu: ## One measured run. Files go in .data/benchmark. CLIP=/media/x.m
 		--out /media/runs/$(or $(PRESET),standard)-$$(date +%Y%m%d-%H%M%S)
 
 .PHONY: spike-mac
-spike-mac: ## Measure tracking and pose on this Mac. CLIP_DIR holds video.mp4 and dataset_mask.mp4
-	cd services/ml-worker && uv run --extra wan --extra preprocess python -m motionmirror.cli.spike_mac --clip-dir $(abspath $(CLIP_DIR)) --out $(abspath .data/runs/spike)
+spike-mac: ## Measure tracking and pose on this Mac. CLIP_DIR holds video.mp4 and dataset_mask.mp4. ONLY=gguf for the 14B attempt
+	cd services/ml-worker && uv run --extra wan --extra preprocess python -m motionmirror.cli.spike_mac --clip-dir $(abspath $(CLIP_DIR)) --out $(abspath .data/runs/spike) $(if $(ONLY),--only $(ONLY))
 
 .PHONY: test-tools
 test-tools: ## Unit tests for repository tooling

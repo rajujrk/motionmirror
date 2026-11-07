@@ -28,6 +28,12 @@ Evidence: `services/ml-worker/tests/contract/test_wan_animate_tiny.py`, run on C
 | Guidance | `guidance_scale=1.0` disables CFG. A negative prompt then has no effect | Test |
 | Guidance enabled | At `>1` a negative prompt changes output. CFG only targets text and face conditioning per the docs | Test, docs |
 | Multiple references | One `image`. A list means a batch, not multi-view fusion, so extra photos are stored and marked supplementary | Source |
+| Precomputed image features | `image_embeds` can't be used. It's refused alongside `image`, and without `image` the call fails, because the image also feeds the VAE. To reuse features, pass `image` and replace `encode_image` | Test |
+| Quantized transformer | The Q2_K GGUF loads through `from_single_file` and generates. The original checkpoint's fixed blur kernels are reported as unused, which is expected: Diffusers builds them itself. Nothing is reported uninitialized | One run on this Mac, below |
+
+## Real weights on this Mac
+
+One run on 2026-11-07, labelled `experimental`. It proves the quantized 14B model generates on Apple Silicon at a toy size. It says nothing about output quality, since the inputs were blank gray frames, and isn't GPU validation. Details in `docs/MAC_APPLE_SILICON.md`.
 
 ## Limits the validator must enforce
 

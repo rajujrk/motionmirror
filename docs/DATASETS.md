@@ -20,6 +20,8 @@ make samples-build DATASET=tiktok-dance LIMIT=8                      # The first
 make samples-build DATASET=tiktok-dance CLIPS="00001 00029 00058"    # Named clips, here one from each split
 ```
 
+The download checked here on 2026-11-07 was one file, `tiktok-dance.zip`, 48,622,644,842 bytes, sha256 `99fbdcc9467de5e66fe17177adf09115698f19d98996c21ed0918a33eb8709c6`. Writing and verifying its manifest took 105 s. It records what was downloaded, and hasn't been compared with a checksum from the authors.
+
 ## Building samples
 
 The archive is untrusted input. Paths are checked before use, frames must really be PNGs within a pixel limit, and nothing is written under a name the archive chose.

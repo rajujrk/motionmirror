@@ -297,6 +297,11 @@ def run_gguf(output: Path, seconds_limit: int) -> dict[str, Any]:
             print(f"step {step} at {stages['last_step_seconds_since_start']}s, rss {peak_rss_gb()} GB", flush=True)
             return callback_kwargs
 
+        # The pipeline refuses `image` with `image_embeds`, yet needs `image` for its VAE latents. So the image goes in
+        # as usual and the features computed earlier come back from encode_image. A contract test pins both.
+        image_embeds = image_embeds.to("mps", dtype=torch.float16)
+        pipe.encode_image = lambda _image, device=None: image_embeds
+
         generate_started = time.monotonic()
         result = pipe(
             image=canvas,
@@ -305,7 +310,6 @@ def run_gguf(output: Path, seconds_limit: int) -> dict[str, Any]:
             background_video=[canvas] * frames,
             mask_video=[Image.new("L", (width, height), 255)] * frames,
             prompt_embeds=prompt_embeds.to("mps", dtype=torch.float16),
-            image_embeds=image_embeds.to("mps", dtype=torch.float16),
             height=height,
             width=width,
             segment_frame_length=frames,
