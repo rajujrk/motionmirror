@@ -47,18 +47,16 @@ services:
     <<: *platform
     image: redis:8-alpine@sha256:71885d8cc6e42f2bc0aa2eb853bfc4be200b5108a46ac50e117ae1df0531fb80
     profiles: [lite, full, gpu]
-    command:
-      - redis-server
-      - --aclfile
-      - /etc/redis/users.acl
-      - --maxmemory
-      - 128mb
-      - --maxmemory-policy
-      - noeviction
-      - --save
-      - ""
+    # The ACL is rendered into tmpfs so the password never reaches the host disk.
+    entrypoint:
+      - sh
+      - -ec
+      - |
+        sed "s|\$${MM_REDIS_PASSWORD}|$$MM_REDIS_PASSWORD|g" /etc/redis/users.template.acl > /run/mm/users.acl
+        exec redis-server --aclfile /run/mm/users.acl --maxmemory 128mb --maxmemory-policy noeviction --save ""
+    tmpfs: [/run/mm]
     volumes:
-      - ../../.data/runtime/redis/users.acl:/etc/redis/users.acl:ro
+      - ../../configs/redis/users.template.acl:/etc/redis/users.template.acl:ro
     ports: ["127.0.0.1:${MM_HOST_REDIS_PORT}:6379"]
     healthcheck:
       test: ["CMD-SHELL", "redis-cli --user mm-doctor --pass \"$$MM_REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
@@ -86,8 +84,15 @@ services:
       KC_HTTP_ENABLED: "true"
       KC_PROXY_HEADERS: xforwarded
       KC_HEALTH_ENABLED: "true"
+      # Keycloak fills the ${...} placeholders in the realm file from these at import.
+      MM_PUBLIC_ORIGIN: ${MM_PUBLIC_ORIGIN}
+      MM_WEB_CLIENT_SECRET: ${MM_WEB_CLIENT_SECRET}
+      MM_WORKER_MOCK_CLIENT_SECRET: ${MM_WORKER_MOCK_CLIENT_SECRET}
+      MM_WORKER_WAN_CLIENT_SECRET: ${MM_WORKER_WAN_CLIENT_SECRET}
+      MM_DEV_USER_PASSWORD: ${MM_DEV_USER_PASSWORD}
+      MM_DEV_ADMIN_PASSWORD: ${MM_DEV_ADMIN_PASSWORD}
     volumes:
-      - ../../.data/runtime/keycloak:/opt/keycloak/data/import:ro
+      - ../identity/realm-template.json:/opt/keycloak/data/import/motionmirror-realm.json:ro
     depends_on:
       postgres: {condition: service_healthy}
     healthcheck:
@@ -101,10 +106,20 @@ services:
     <<: *platform
     image: chrislusf/seaweedfs:4.52@sha256:57877e32bb90073b37dc109b438ba66e84fd5ed9ced5f5c04f56444ef243ce59
     profiles: [lite, full, gpu]
-    command: ["server", "-dir=/data", "-ip.bind=0.0.0.0", "-s3", "-s3.port=8333", "-s3.config=/etc/seaweedfs/s3.json", "-volume.max=8"]
+    # The S3 credentials are rendered into tmpfs so they never reach the host disk.
+    entrypoint:
+      - sh
+      - -ec
+      - |
+        sed -e "s|\$${MM_S3_ACCESS_KEY}|$$MM_S3_ACCESS_KEY|g" -e "s|\$${MM_S3_SECRET_KEY}|$$MM_S3_SECRET_KEY|g" /etc/seaweedfs/s3.template.json > /run/mm/s3.json
+        exec weed server -dir=/data -ip.bind=0.0.0.0 -s3 -s3.port=8333 -s3.config=/run/mm/s3.json -volume.max=8
+    environment:
+      MM_S3_ACCESS_KEY: ${MM_S3_ACCESS_KEY}
+      MM_S3_SECRET_KEY: ${MM_S3_SECRET_KEY}
+    tmpfs: [/run/mm]
     volumes:
       - seaweedfs-data:/data
-      - ../../.data/runtime/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+      - ../../configs/seaweedfs/s3.template.json:/etc/seaweedfs/s3.template.json:ro
     ports: ["127.0.0.1:${MM_HOST_S3_PORT}:8333"]
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8333/status || wget -q -S -O /dev/null http://127.0.0.1:8333/ 2>&1 | grep -q HTTP"]

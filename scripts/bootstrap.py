@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import os
 import platform
 import re
 import secrets
@@ -14,6 +15,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 RUNTIME = ROOT / ".data" / "runtime"
 PLACEHOLDER = "__GENERATE__"
+# Only salted hashes go to disk. Keycloak reads its secrets from env placeholders, and Redis and
+# SeaweedFS render theirs into tmpfs inside the container (see infra/compose/compose.yaml).
+DISK_RENDERED = [("configs/rabbitmq/definitions.template.json", "rabbitmq/definitions.json")]
+
+
+def write_private(path: Path, content: str) -> None:
+    """Write a file only its owner can read, with no window at wider permissions."""
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w") as stream:
+        stream.write(content)
+    path.chmod(0o600)
 
 
 def rabbit_password_hash(password: str, salt: bytes | None = None) -> str:
@@ -59,20 +71,14 @@ def render_template(template: str, values: dict[str, str]) -> str:
 def main() -> None:
     env_path = ROOT / ".env"
     if not env_path.exists():
-        env_path.write_text(render_env((ROOT / ".env.example").read_text(), host_platform()))
-        env_path.chmod(0o600)
+        write_private(env_path, render_env((ROOT / ".env.example").read_text(), host_platform()))
         print("created .env with generated secrets")
     else:
         print(".env already exists, keeping it")
     values = parse_env(env_path.read_text())
 
-    for directory, source, name in [
-        ("rabbitmq", "configs/rabbitmq/definitions.template.json", "definitions.json"),
-        ("redis", "configs/redis/users.template.acl", "users.acl"),
-        ("seaweedfs", "configs/seaweedfs/s3.template.json", "s3.json"),
-        ("keycloak", "infra/identity/realm-template.json", "motionmirror-realm.json"),
-    ]:
-        target = RUNTIME / directory / name
+    for source, name in DISK_RENDERED:
+        target = RUNTIME / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(render_template((ROOT / source).read_text(), values))
     shutil.copy(ROOT / "configs/rabbitmq/rabbitmq.conf", RUNTIME / "rabbitmq" / "rabbitmq.conf")

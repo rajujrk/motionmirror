@@ -52,7 +52,7 @@ def test_report_fails_only_on_failures() -> None:
 
 
 def test_native_service_on_a_host_port_is_a_conflict() -> None:
-    owners = {55432: "postgres", 8088: "OrbStack", 55672: None}
+    owners = {55432: "postgres", 8088: "OrbStack Helper", 55672: None}
     ports = {"postgres": 55432, "http": 8088, "rabbitmq": 55672}
     problems = doctor.port_conflicts(ports, owners.get)
     assert problems == ["postgres port 55432 is held by postgres"]

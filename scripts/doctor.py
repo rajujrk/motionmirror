@@ -21,7 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE = ["docker", "compose", "--env-file", str(ROOT / ".env"), "-f", str(ROOT / "infra/compose/compose.yaml")]
 REQUIRED_ENCODERS = ("libx264", "aac")
-CONTAINER_RUNTIMES = {"orbstack", "docker", "com.docke", "com.docker", "docker-pr", "vpnkit", "wslrelay"}
+CONTAINER_RUNTIMES = ("orbstack", "docker", "com.docke", "vpnkit", "wslrelay")
 DEFAULT_MAX_ATTEMPT_MS = 4 * 60 * 60 * 1000
 CLEANUP_MARGIN_MS = 30 * 60 * 1000
 
@@ -56,7 +56,7 @@ def port_conflicts(ports: dict[str, int], owner_of: Callable[[int], str | None])
     problems = []
     for name, port in ports.items():
         owner = owner_of(port)
-        if owner and owner.lower() not in CONTAINER_RUNTIMES:
+        if owner and not owner.lower().startswith(CONTAINER_RUNTIMES):
             problems.append(f"{name} port {port} is held by {owner}")
     return problems
 
