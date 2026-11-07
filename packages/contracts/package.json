@@ -1,0 +1,13 @@
+{
+  "name": "@motionmirror/contracts",
+  "version": "1.0.0",
+  "private": true,
+  "types": "./generated/api.d.ts",
+  "scripts": {
+    "generate": "openapi-typescript openapi.json -o generated/api.d.ts"
+  },
+  "devDependencies": {
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3"
+  }
+}

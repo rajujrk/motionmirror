@@ -1,0 +1,12 @@
+{
+  "name": "motionmirror",
+  "private": true,
+  "packageManager": "pnpm@10.14.0",
+  "engines": {"node": ">=26.13.0 <27"},
+  "scripts": {
+    "web:test": "pnpm --filter @motionmirror/web test",
+    "web:lint": "pnpm --filter @motionmirror/web lint",
+    "web:typecheck": "pnpm --filter @motionmirror/web typecheck",
+    "e2e": "pnpm --filter @motionmirror/e2e test"
+  }
+}
