@@ -66,3 +66,20 @@ def test_pose_on_a_cuda_worker_refuses_to_fall_back_to_the_cpu() -> None:
 def test_pose_with_the_gpu_provider_passes_and_a_mac_never_needs_it() -> None:
     require_gpu_session(Session("CUDAExecutionProvider", "CPUExecutionProvider"), "cuda")
     require_gpu_session(Session("CPUExecutionProvider"), "mps")
+
+
+@pytest.mark.asyncio
+async def test_scope_check_passes_only_when_the_api_refuses() -> None:
+    from motionmirror.cli import worker_check
+
+    class Api:
+        def __init__(self, status: int) -> None:
+            self.status = status
+
+        async def post(self, path: str, body: dict[str, Any]) -> Any:
+            assert body["backends"] == ["not-a-backend"]
+            return type("Response", (), {"status_code": self.status})()
+
+    settings = type("Settings", (), {"worker_id": "w", "backend": "mock", "device_profile": "cpu"})()
+    assert (await worker_check.check_scope(Api(403), settings))["ok"] is True
+    assert (await worker_check.check_scope(Api(204), settings))["ok"] is False

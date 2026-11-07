@@ -217,7 +217,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--trim-start", type=float)
     parser.add_argument("--trim-end", type=float)
     parser.add_argument("--preprocess-only", action="store_true")
+    parser.add_argument("--watchdog", action="store_true", help="stop if this machine starts running out of memory")
     args = parser.parse_args(argv)
+    if args.watchdog:
+        from motionmirror.cli.spike_mac import MemoryWatchdog
+
+        def stop(reason: str) -> None:
+            args.out.mkdir(parents=True, exist_ok=True)
+            (args.out / "stopped_by_watchdog.json").write_text(
+                json.dumps({"reason": reason, "peak_host_memory_gb": peak_host_memory_gb()}, indent=2)
+            )
+            print(f"WATCHDOG: {reason}. Stopping to protect this machine.", file=sys.stderr, flush=True)
+            os._exit(3)
+
+        MemoryWatchdog(stop).__enter__()
     try:
         report = run(
             args.source,

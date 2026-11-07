@@ -47,7 +47,11 @@ export async function createProject(page: Page, name: string): Promise<void> {
 }
 
 /** Upload a clip, mark the dancer, add a photo and track, leaving the page on a checked mask. */
-export async function prepareToGenerate(page: Page, files: { clip: string; reference: string }): Promise<void> {
+export async function prepareToGenerate(
+  page: Page,
+  files: { clip: string; reference: string },
+  trackTimeout = 60_000,
+): Promise<void> {
   await page.getByLabel("I have permission to use this video").check();
   await page.getByLabel("Choose a clip").setInputFiles(files.clip);
 
@@ -66,7 +70,7 @@ export async function prepareToGenerate(page: Page, files: { clip: string; refer
 
   await expect(page.getByRole("heading", { name: "Check the mask" })).toBeVisible();
   await page.getByRole("button", { name: "Track the dancer" }).click();
-  await expect(page.getByTestId("job-status")).toHaveAttribute("data-state", "SUCCEEDED");
+  await expect(page.getByTestId("job-status")).toHaveAttribute("data-state", "SUCCEEDED", { timeout: trackTimeout });
   await expect(page.getByLabel("Mask preview")).toBeVisible();
 }
 

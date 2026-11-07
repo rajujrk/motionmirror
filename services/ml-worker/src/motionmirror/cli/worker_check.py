@@ -13,7 +13,7 @@ from typing import Any
 
 import aio_pika
 import httpx
-from aio_pika.exceptions import ChannelAccessRefused, ChannelNotFoundEntity
+from aiormq.exceptions import ChannelAccessRefused, ChannelNotFoundEntity
 
 from motionmirror.worker.__main__ import describe
 from motionmirror.worker.api_client import ApiClient

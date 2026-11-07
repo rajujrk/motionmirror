@@ -87,6 +87,7 @@ def datasets_validate(dataset_id: str) -> int:
 def samples_build(dataset_id: str, limit: int | None, clips: list[str] | None) -> int:
     """Real pose estimation on real clips. Slow on a Mac, so it takes a limit."""
     from motionmirror.preprocessing.models import load_pose_estimator
+
     from motionmirror_training.datasets.samples import build_samples
 
     entry = load_registry(REGISTRY_PATH).get(dataset_id)
