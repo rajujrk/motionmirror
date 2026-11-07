@@ -34,8 +34,10 @@ from motionmirror_training.datasets.samples import (
     fixed_eval_set,
     perceptual_hash,
 )
+from motionmirror_training.datasets.tiktok import UnsafeArchive, index_clips
 
-SIZE = (108, 192)
+# Above the minimum side, so a clip is only rejected for resolution when a test means it to be.
+SIZE = (256, 448)
 ROW_FIELDS = SampleRow.__dataclass_fields__
 
 
@@ -74,20 +76,20 @@ def index_color(index: int) -> int:
     return 20 + (index % 8) * 30
 
 
-def frame_png(index: int, pattern: int = 0) -> bytes:
+def frame_png(index: int, pattern: int = 0, size: tuple[int, int] = SIZE) -> bytes:
     """Brightness encodes the frame. The pattern makes clips from different sources look different."""
-    picture = np.full((SIZE[1], SIZE[0], 3), index_color(index), dtype=np.uint8)
+    picture = np.full((size[1], size[0], 3), index_color(index), dtype=np.uint8)
     rng = np.random.default_rng(pattern)
-    band = SIZE[1] // 2 - 8
-    picture[:band, :] = rng.integers(0, 255, (band, SIZE[0], 3), dtype=np.uint8)
+    band = size[1] // 2 - 8
+    picture[:band, :] = rng.integers(0, 255, (band, size[0], 3), dtype=np.uint8)
     buffer = io.BytesIO()
     Image.fromarray(picture).save(buffer, "PNG")
     return buffer.getvalue()
 
 
-def mask_png(area: float = 0.25) -> bytes:
-    mask = np.zeros((SIZE[1], SIZE[0]), dtype=np.uint8)
-    side = int(SIZE[1] * area**0.5), int(SIZE[0] * area**0.5)
+def mask_png(area: float = 0.25, size: tuple[int, int] = SIZE) -> bytes:
+    mask = np.zeros((size[1], size[0]), dtype=np.uint8)
+    side = int(size[1] * area**0.5), int(size[0] * area**0.5)
     mask[60 : 60 + side[0], 30 : 30 + side[1]] = 255
     buffer = io.BytesIO()
     Image.fromarray(mask).save(buffer, "PNG")
@@ -95,17 +97,22 @@ def mask_png(area: float = 0.25) -> bytes:
 
 
 def write_clip(
-    archive: zipfile.ZipFile, clip: str, frames: int, masks: int | None = None, area: float = 0.25
+    archive: zipfile.ZipFile,
+    clip: str,
+    frames: int,
+    masks: int | None = None,
+    area: float = 0.25,
+    size: tuple[int, int] = SIZE,
 ) -> None:
     pattern = int(clip)
     for index in range(1, frames + 1):
         archive.writestr(
             f"TikTok_dataset/TikTok_dataset/{clip}/images/{index:04d}.png",
-            frame_png(index - 1, pattern),
+            frame_png(index - 1, pattern, size),
         )
     for index in range(1, (frames if masks is None else masks) + 1):
         archive.writestr(
-            f"TikTok_dataset/TikTok_dataset/{clip}/masks/{index:04d}.png", mask_png(area)
+            f"TikTok_dataset/TikTok_dataset/{clip}/masks/{index:04d}.png", mask_png(area, size)
         )
 
 
@@ -320,6 +327,45 @@ def test_masks_for_the_wrong_number_of_frames_are_refused() -> None:
     tracker = DatasetMaskTracker([np.zeros((4, 4), dtype=np.uint8)])
     with pytest.raises(ValueError, match="1 masks"):
         tracker.track([np.zeros((4, 4, 3), dtype=np.uint8)] * 2, [])
+
+
+def test_a_low_resolution_clip_is_rejected_before_it_is_upscaled(tmp_path: Path) -> None:
+    path = tmp_path / "dataset.zip"
+    with zipfile.ZipFile(path, "w") as output:
+        write_clip(output, "00009", 100, size=(108, 192))
+    report = build_samples(path, entry(), tmp_path / "out", FakePose())
+    assert report.rejections == [Rejection("00009", "too_low_resolution")]
+
+
+def test_the_first_frame_gets_the_same_checks_as_every_other(tmp_path: Path) -> None:
+    """It's decoded for the duplicate check before anything else, so it can't skip the archive's safety checks."""
+    path = tmp_path / "dataset.zip"
+    jpeg = io.BytesIO()
+    Image.new("RGB", SIZE).save(jpeg, "JPEG")
+    with zipfile.ZipFile(path, "w") as output:
+        write_clip(output, "00001", 100)
+        output.writestr("TikTok_dataset/TikTok_dataset/00002/images/0001.png", jpeg.getvalue())
+    with zipfile.ZipFile(path) as archive:
+        clip = index_clips(archive)["00002"]
+        with pytest.raises(UnsafeArchive, match="isn't a PNG"):
+            samples.first_frame(archive, clip)
+
+
+def test_a_clip_whose_controls_come_out_a_frame_short_is_rejected_not_fatal(
+    archive: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cutting by time can round to one frame more or less. That clip is dropped, and the build still finishes."""
+
+    def one_frame_short(
+        source: Path, inputs: Any, settings: Any, context: Any, tracker: Any, pose: Any
+    ) -> None:
+        tracker.track([None] * (len(tracker.masks) - 1), [])
+
+    monkeypatch.setattr(samples, "run_preprocess", one_frame_short)
+    out = tmp_path / "out"
+    report = build_samples(archive, entry(), out, FakePose())
+    assert Rejection("00001", "control_frame_mismatch") in report.rejections
+    assert (out / "manifest.json").exists()
 
 
 def test_a_clip_where_the_subject_fills_the_frame_is_rejected() -> None:

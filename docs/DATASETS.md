@@ -26,7 +26,7 @@ The download checked here on 2026-11-07 was one file, `tiktok-dance.zip`, 48,622
 
 The archive is untrusted input. Paths are checked before use, frames must really be PNGs within a pixel limit, and nothing is written under a name the archive chose.
 
-1. **Filter.** Every rejection is recorded with its reason: `no_mask`, `mask_count_mismatch`, `too_short`, `too_low_resolution`, `subject_missing_or_too_small`, `subject_fills_the_frame`, `near_duplicate_of_another_source`. 284 of the 340 clips are long enough.
+1. **Filter.** Every rejection is recorded with its reason: `no_mask`, `mask_count_mismatch`, `too_short`, `too_low_resolution`, `subject_missing_or_too_small`, `subject_fills_the_frame`, `near_duplicate_of_another_source`, `control_frame_mismatch`. Resolution is judged on the source frames, before they're scaled to the canvas. 284 of the 340 clips are long enough.
 2. **Split.** By a hash of the raw compilation, so a whole group lands together, and a leak fails the build. The dataset has no person ids, so the same person in two compilations could still leak. That limit is recorded in each dataset card. Across the whole dataset, 19 groups (236 clips) land in train, 3 (43) in validation and 4 (61) in test. A small `LIMIT` takes the first clips, which share one group, so it builds no evaluation set and `eval-adapter` refuses it. Use `CLIPS` to cover every split. Training reads the train split only.
 3. **De-duplicate.** A difference hash of each clip's first frame. Nothing in the full dataset is within 6 bits across sources, so this drops nothing today.
 4. **Preprocess.** The same pipeline serving uses, with the dataset's masks in place of SAM 2 and real ViTPose.

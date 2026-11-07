@@ -74,6 +74,14 @@ def read_samples(samples_dir: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def train_samples(samples_dir: Path) -> list[dict[str, Any]]:
+    """Validation and test clips are what evaluation scores, so no training path ever reads them."""
+    rows = [row for row in read_samples(samples_dir) if row["split"] == "train"]
+    if not rows:
+        raise NoSamplesError(f"{samples_dir} has no samples in the train split")
+    return rows
+
+
 def _frames(path: Path, width: int, height: int, count: int) -> list[Image.Image]:
     frames = FrameSource(path, width, height).slice(0, count)
     if len(frames) < count:
@@ -266,10 +274,7 @@ def run_smoke(
     if profile.kind != "smoke":
         raise ValueError(f"{profile.id} isn't a smoke profile")
     device = select_device(profile.device).device
-    # Validation and test clips are what evaluation scores, so training never sees them.
-    rows = [row for row in read_samples(samples_dir) if row["split"] == "train"]
-    if not rows:
-        raise NoSamplesError(f"{samples_dir} has no samples in the train split")
+    rows = train_samples(samples_dir)
     out.mkdir(parents=True, exist_ok=True)
     checkpoints = out / "checkpoints"
 

@@ -132,3 +132,19 @@ def test_validation_checks_the_download_not_what_was_built_from_it(
     (root / "download" / "tiktok-dance.zip").write_bytes(b"corrupted")
     assert cli.datasets_validate("tiktok-dance") == 1
     assert "tiktok-dance.zip" in capsys.readouterr().err
+
+
+def test_validation_waits_for_an_unfinished_download(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A .part file is renamed when the download finishes, so a manifest written now would list a file that vanishes."""
+    from motionmirror_training import cli
+
+    root = tmp_path / "tiktok-dance"
+    (root / "download").mkdir(parents=True)
+    (root / "download" / "tiktok-dance.zip.part").write_bytes(b"half")
+    monkeypatch.setenv("MM_DATASET_ROOT", str(tmp_path))
+
+    assert cli.datasets_validate("tiktok-dance") == 1
+    assert "hasn't finished" in capsys.readouterr().err
+    assert not (root / "MANIFEST.json").exists()

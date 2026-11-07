@@ -22,7 +22,7 @@ import yaml
 
 from motionmirror_training.datasets.registry import DatasetEntry, Purpose, assert_training_allowed
 from motionmirror_training.train.profiles import Profile
-from motionmirror_training.train.smoke import read_samples
+from motionmirror_training.train.smoke import train_samples
 
 DATA_FILE_KEYS = (
     "video,animate_pose_video,animate_face_video,animate_inpaint_video,animate_mask_video"
@@ -277,8 +277,7 @@ def run_real(
     execute: Callable[[list[str], Path], int] | None = None,
 ) -> dict[str, Any]:
     run_dir.mkdir(parents=True, exist_ok=True)
-    samples = read_samples(samples_dir)
-    train = [row for row in samples if row["split"] == "train"]
+    train = train_samples(samples_dir)
     found = hardware or detect_hardware(run_dir)
     plan = preflight(
         profile,
@@ -324,7 +323,7 @@ def calibrate(
     found = hardware or detect_hardware(run_dir)
     if found.gpu_count == 0:
         raise PreflightError("No CUDA GPU is visible, so there's nothing to calibrate")
-    train = [row for row in read_samples(samples_dir) if row["split"] == "train"]
+    train = train_samples(samples_dir)
     command = build_command(
         profile,
         samples_dir,

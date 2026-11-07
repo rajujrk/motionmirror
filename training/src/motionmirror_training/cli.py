@@ -93,6 +93,12 @@ def datasets_validate(dataset_id: str) -> int:
     # Only what was downloaded. Samples built from it sit beside it and change with every build.
     downloaded = root / "download"
     manifest = root / "MANIFEST.json"
+    unfinished = sorted(path.name for path in downloaded.glob("*.part"))
+    if unfinished:
+        print(
+            f"{dataset_id}: the download hasn't finished ({', '.join(unfinished)})", file=sys.stderr
+        )
+        return 1
     if not manifest.exists():
         if not downloaded.is_dir() or not any(downloaded.rglob("*")):
             print(f"{dataset_id}: nothing downloaded under {downloaded}", file=sys.stderr)

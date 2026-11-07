@@ -28,7 +28,13 @@ from motionmirror.preprocessing.mapping import FramePrompt
 from motionmirror.preprocessing.pipeline import PoseEstimator, run_preprocess
 
 from motionmirror_training.datasets.registry import DatasetEntry, Purpose, assert_training_allowed
-from motionmirror_training.datasets.tiktok import DATASET_FPS, ClipIndex, extract_clip, index_clips
+from motionmirror_training.datasets.tiktok import (
+    DATASET_FPS,
+    ClipIndex,
+    extract_clip,
+    index_clips,
+    read_png,
+)
 
 # 4N+1, as the model requires. One video frame is the reference, so 80 target frames give 77 controls, which is the
 # segment length the presets use.
@@ -156,6 +162,10 @@ def fixed_eval_set(rows: list[SampleRow], size: int = 8) -> list[str]:
     return sorted(test, key=lambda clip_id: hashlib.sha256(clip_id.encode()).hexdigest())[:size]
 
 
+class ControlFrameMismatch(ValueError):
+    """The cut decoded a different number of frames than there are masks for it."""
+
+
 class DatasetMaskTracker:
     """Uses the dataset's own masks in place of SAM 2. The rest of the pipeline is the one serving uses."""
 
@@ -166,7 +176,7 @@ class DatasetMaskTracker:
 
     def track(self, frames: list[np.ndarray], prompts: list[FramePrompt]) -> list[np.ndarray]:
         if len(frames) != len(self.masks):
-            raise ValueError(f"{len(frames)} frames but {len(self.masks)} masks")
+            raise ControlFrameMismatch(f"{len(frames)} frames but {len(self.masks)} masks")
         return self.masks
 
 
@@ -190,6 +200,9 @@ def build_sample(
     reason = assess_clip(clip)
     if reason:
         return Rejection(clip.clip_id, reason)
+    # Checked on the source, since every frame is scaled to the canvas once it's read.
+    if min(first_frame(archive, clip).shape[:2]) < MIN_SIDE:
+        return Rejection(clip.clip_id, "too_low_resolution")
 
     work = out / "_extract" / clip.clip_id
     extracted = extract_clip(archive, clip, work)
@@ -199,8 +212,6 @@ def build_sample(
         (frame[:, :, 0] > 127).astype(np.uint8)
         for frame in read_frames(extracted["mask"], width, height)
     ]
-    if min(frames[0].shape[:2]) < MIN_SIDE:
-        return Rejection(clip.clip_id, "too_low_resolution")
     reason = assess_masks(masks)
     if reason:
         return Rejection(clip.clip_id, reason)
@@ -230,7 +241,11 @@ def build_sample(
     }
     # The dataset's source is cut to the control range, and so must its masks be, or they'd pair with the wrong frames.
     tracker = DatasetMaskTracker(masks[control_range[0] : control_range[1]])
-    run_preprocess(extracted["video"], inputs, settings, JobContext(context_dir), tracker, pose)
+    try:
+        run_preprocess(extracted["video"], inputs, settings, JobContext(context_dir), tracker, pose)
+    except ControlFrameMismatch:
+        # Cutting by time can round to a frame more or less. Losing this clip is better than losing the build.
+        return Rejection(clip.clip_id, "control_frame_mismatch")
 
     names = {
         "animate_pose_video": "src_pose.mp4",
@@ -265,12 +280,7 @@ def build_sample(
 
 
 def first_frame(archive: zipfile.ZipFile, clip: ClipIndex) -> np.ndarray:
-    import io
-
-    from PIL import Image
-
-    with Image.open(io.BytesIO(archive.read(clip.images[0]))) as image:
-        return np.asarray(image.convert("RGB"))
+    return read_png(archive, clip.images[0], "RGB")
 
 
 def build_samples(

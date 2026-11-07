@@ -72,7 +72,7 @@ def index_clips(archive: zipfile.ZipFile) -> dict[str, ClipIndex]:
     }
 
 
-def _read_png(archive: zipfile.ZipFile, name: str, mode: str) -> np.ndarray:
+def read_png(archive: zipfile.ZipFile, name: str, mode: str) -> np.ndarray:
     check_member(name)
     with Image.open(io.BytesIO(archive.read(name))) as image:
         if image.format != "PNG":
@@ -90,7 +90,7 @@ def extract_clip(
     names = clip.images[:max_frames] if max_frames else clip.images
     video = output / "video.mp4"
     write_video(
-        (_even(_read_png(archive, name, "RGB")) for name in names), video, DATASET_FPS, crf=14
+        (_even(read_png(archive, name, "RGB")) for name in names), video, DATASET_FPS, crf=14
     )
     result = {"video": video}
     if clip.masks:
@@ -98,7 +98,7 @@ def extract_clip(
         mask = output / "dataset_mask.mp4"
         write_video(
             (
-                _even(np.repeat(_read_png(archive, name, "L")[:, :, None], 3, axis=2))
+                _even(np.repeat(read_png(archive, name, "L")[:, :, None], 3, axis=2))
                 for name in masks
             ),
             mask,
