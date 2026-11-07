@@ -1,0 +1,19 @@
+motionmirror:
+  jobs:
+    outbox-enabled: false
+    reconciler-enabled: false
+    lease-ttl: 2m
+    retry-base-delay: 1s
+    publish-confirm-timeout: 2s
+    outbox-reservation: 1s
+  limits:
+    max-active-jobs-per-user: 3
+    submissions-per-minute: 1000
+    upload-intents-per-minute: 1000
+spring:
+  session:
+    jdbc:
+      initialize-schema: never
+logging:
+  level:
+    com.motionmirror: INFO

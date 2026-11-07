@@ -1,0 +1,13 @@
+{
+  "settings": {
+    "schema_version": 1,
+    "seed": 4294967296,
+    "height": 480,
+    "width": 832,
+    "num_inference_steps": 20,
+    "guidance_scale": 1.0,
+    "segment_frame_length": 77,
+    "prev_segment_conditioning_frames": 1
+  },
+  "expected_error": "SCHEMA"
+}

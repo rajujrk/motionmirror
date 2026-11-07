@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "seed": 42,
+  "height": 480,
+  "width": 832,
+  "num_inference_steps": 20,
+  "guidance_scale": 5.0,
+  "segment_frame_length": 77,
+  "prev_segment_conditioning_frames": 1,
+  "negative_prompt": "blurry"
+}

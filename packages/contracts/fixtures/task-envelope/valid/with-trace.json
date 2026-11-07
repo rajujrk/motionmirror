@@ -1,0 +1,1 @@
+{"schema_version": 1, "event_id": "0b0a4f8e-8a39-4c55-9e2c-0d1f7f9d2a11", "job_id": "6f0f6c52-3b14-4e59-8f0e-71f5a8b0c111", "dispatch_generation": 3, "task_type": "preprocess", "backend_id": "wan-animate", "config_revision": "standard@2", "created_at": "2026-11-06T12:00:00Z", "trace": {"traceparent": "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"}}

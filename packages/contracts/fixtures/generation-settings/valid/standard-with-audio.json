@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "seed": 42,
+  "height": 720,
+  "width": 1280,
+  "num_inference_steps": 20,
+  "guidance_scale": 1.0,
+  "segment_frame_length": 77,
+  "prev_segment_conditioning_frames": 5,
+  "retain_audio": true,
+  "positive_prompt": "a person dancing"
+}

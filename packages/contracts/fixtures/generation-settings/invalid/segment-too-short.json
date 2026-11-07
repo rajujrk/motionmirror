@@ -1,0 +1,13 @@
+{
+  "settings": {
+    "schema_version": 1,
+    "seed": 42,
+    "height": 480,
+    "width": 832,
+    "num_inference_steps": 20,
+    "guidance_scale": 1.0,
+    "segment_frame_length": 9,
+    "prev_segment_conditioning_frames": 5
+  },
+  "expected_error": "SEGMENT_TOO_SHORT_FOR_CONDITIONING"
+}

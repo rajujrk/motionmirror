@@ -1,0 +1,28 @@
+asyncapi: 3.0.0
+info:
+  title: MotionMirror task dispatch
+  version: 1.0.0
+  description: At-least-once task delivery. Correctness comes from the outbox, leases and fencing, not from the broker.
+defaultContentType: application/json
+channels:
+  preprocess:
+    address: motionmirror.preprocess.v1
+    messages: {task: {$ref: '#/components/messages/Task'}}
+  preprocessMock:
+    address: motionmirror.preprocess.mock.v1
+    messages: {task: {$ref: '#/components/messages/Task'}}
+  generateWanAnimate:
+    address: motionmirror.generate.wan-animate.v1
+    messages: {task: {$ref: '#/components/messages/Task'}}
+  generateMock:
+    address: motionmirror.generate.mock.v1
+    messages: {task: {$ref: '#/components/messages/Task'}}
+operations:
+  consumeTask:
+    action: receive
+    channel: {$ref: '#/channels/generateWanAnimate'}
+components:
+  messages:
+    Task:
+      payload:
+        $ref: './messages/task-envelope.v1.schema.json'

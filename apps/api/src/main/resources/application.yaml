@@ -1,0 +1,117 @@
+server:
+  port: 8081
+  forward-headers-strategy: framework
+  shutdown: graceful
+  servlet:
+    session:
+      cookie:
+        name: MM_SESSION
+        http-only: true
+        same-site: lax
+        secure: ${MM_COOKIE_SECURE:false}
+
+spring:
+  application:
+    name: motionmirror-api
+  datasource:
+    url: ${MM_DB_URL:jdbc:postgresql://localhost:55432/motionmirror}
+    username: ${MM_DB_USERNAME:motionmirror}
+    password: ${MM_DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 20
+      connection-timeout: 5000
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+  session:
+    timeout: 8h
+    jdbc:
+      initialize-schema: never
+  rabbitmq:
+    host: ${MM_RABBIT_HOST:localhost}
+    port: ${MM_RABBIT_PORT:55672}
+    username: ${MM_RABBIT_USERNAME:mm-publisher}
+    password: ${MM_RABBIT_PUBLISHER_PASSWORD:}
+    virtual-host: motionmirror
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
+    connection-timeout: 5s
+    requested-heartbeat: 30s
+  data:
+    redis:
+      host: ${MM_REDIS_HOST:localhost}
+      port: ${MM_REDIS_PORT:56379}
+      username: ${MM_REDIS_USERNAME:mm-api}
+      password: ${MM_REDIS_PASSWORD:}
+      timeout: 500ms
+      connect-timeout: 500ms
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  health:
+    rabbit:
+      enabled: false
+    redis:
+      enabled: false
+
+springdoc:
+  api-docs:
+    enabled: ${MM_OPENAPI_ENABLED:true}
+  paths-to-match: /api/v1/**
+
+motionmirror:
+  deployment: ${MM_DEPLOYMENT:local}
+  public-origin: ${MM_PUBLIC_ORIGIN:http://localhost:8088}
+  backends:
+    generate: ${MM_GENERATE_BACKEND:mock}
+    preprocess: ${MM_PREPROCESS_BACKEND:mock}
+  oidc:
+    public-issuer: ${MM_OIDC_PUBLIC_ISSUER:http://localhost:8088/auth/realms/motionmirror}
+    internal-base: ${MM_OIDC_INTERNAL_BASE:http://localhost:8088/auth/realms/motionmirror}
+    client-id: ${MM_WEB_CLIENT_ID:motionmirror-web}
+    client-secret: ${MM_WEB_CLIENT_SECRET:}
+    worker-audience: motionmirror-internal
+    worker-backends:
+      motionmirror-worker-mock: [mock]
+      motionmirror-worker-wan: [wan-animate, real-preprocess]
+  storage:
+    internal-endpoint: ${MM_S3_INTERNAL_ENDPOINT:http://localhost:58333}
+    public-endpoint: ${MM_S3_PUBLIC_ENDPOINT:http://localhost:58333}
+    worker-endpoint: ${MM_S3_WORKER_ENDPOINT:${MM_S3_INTERNAL_ENDPOINT:http://localhost:58333}}
+    access-key: ${MM_S3_ACCESS_KEY:}
+    secret-key: ${MM_S3_SECRET_KEY:}
+    bucket: ${MM_S3_BUCKET:motionmirror-media}
+    region: us-east-1
+    upload-url-ttl: 15m
+    download-url-ttl: 5m
+    worker-url-ttl: 30m
+  limits:
+    max-source-bytes: ${MM_MAX_SOURCE_BYTES:524288000}
+    max-source-seconds: ${MM_MAX_SOURCE_SECONDS:30}
+    max-reference-bytes: ${MM_MAX_REFERENCE_BYTES:26214400}
+    max-active-jobs-per-user: ${MM_MAX_ACTIVE_JOBS_PER_USER:2}
+    submissions-per-minute: ${MM_SUBMISSIONS_PER_MINUTE:20}
+    upload-intents-per-minute: ${MM_UPLOAD_INTENTS_PER_MINUTE:60}
+  jobs:
+    lease-ttl: ${MM_LEASE_TTL:2m}
+    max-attempts: ${MM_MAX_ATTEMPTS:3}
+    retry-base-delay: ${MM_RETRY_BASE_DELAY:30s}
+    max-attempt-duration: ${MM_MAX_ATTEMPT_DURATION:4h}
+    queued-redispatch-after: ${MM_QUEUED_REDISPATCH_AFTER:8h}
+    outbox-poll: ${MM_OUTBOX_POLL:250ms}
+    outbox-reservation: ${MM_OUTBOX_RESERVATION:30s}
+    publish-confirm-timeout: ${MM_PUBLISH_CONFIRM_TIMEOUT:10s}
+    reconcile-interval: ${MM_RECONCILE_INTERVAL:15s}

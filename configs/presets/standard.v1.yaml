@@ -1,0 +1,17 @@
+# Full clip. Five conditioning frames for better continuity, per the Diffusers docs. Pending GPU validation.
+id: standard
+revision: 1
+display_name: Standard
+settings:
+  schema_version: 1
+  seed: 42
+  height: 1280
+  width: 720
+  num_inference_steps: 20
+  guidance_scale: 1.0
+  segment_frame_length: 77
+  prev_segment_conditioning_frames: 5
+  processing_fps: 30
+  mask_expand_pixels: 8
+  mask_feather_pixels: 6
+  retain_audio: true

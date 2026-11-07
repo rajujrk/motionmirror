@@ -13,14 +13,17 @@ datasets:
     license_name: CC BY-NC 4.0
     license_url: https://creativecommons.org/licenses/by-nc/4.0/
     license_notes: >-
-      Kaggle's API reports CC BY-NC 4.0. A mirror of the project page asks for research use only. The stricter statement applies.
-      Clips show real people who have not individually consented to this use.
+      Verbatim from License.pdf inside the download: "The code and the data will not be transferred to outside parties without the
+      authors' permission and will be used only for research purposes. In particular, the code or TikTok dataset will not be included
+      as part of any commercial software package or product of this institution." and "This work and dataset is licensed under a
+      Creative Commons Attribution-NonCommercial 4.0 International License." Clips show real people who have not individually
+      consented to this use. Copying this data to a third-party GPU provider may count as a transfer; get the authors' permission first.
     commercial_use_ok: false
-    attribution: Cite Jafarian and Park, CVPR 2021
+    attribution: "Jafarian and Park, Learning High Fidelity Depths of Dressed Humans by Watching Social Media Dance Videos, CVPR 2021"
     consent_notes: Real people's likeness. Research adapters only, never promoted to production.
-    size_bytes: 53288866606
+    size_bytes: 48622644842
     checksum_manifest: .data/datasets/tiktok-dance/MANIFEST.json
-    retrieval_date: null
+    retrieval_date: "2026-11-06"
     review:
       status: approved
       scope: research_only

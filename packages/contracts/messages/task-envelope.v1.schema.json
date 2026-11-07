@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://motionmirror.dev/schemas/task-envelope.v1.schema.json",
+  "title": "TaskEnvelopeV1",
+  "description": "RabbitMQ task message. It carries identifiers only: never media bytes, secrets, signed URLs, prompts or executable arguments. The worker resolves the authoritative request from the API after acquiring a lease.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_id", "job_id", "dispatch_generation", "task_type", "backend_id", "config_revision", "created_at"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "event_id": {"type": "string", "format": "uuid"},
+    "job_id": {"type": "string", "format": "uuid"},
+    "dispatch_generation": {"type": "integer", "minimum": 1},
+    "task_type": {"enum": ["validate", "preprocess", "generate"]},
+    "backend_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"},
+    "config_revision": {"type": "string", "maxLength": 128},
+    "created_at": {"type": "string", "format": "date-time"},
+    "trace": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "traceparent": {"type": "string", "maxLength": 128},
+        "tracestate": {"type": "string", "maxLength": 256}
+      }
+    }
+  }
+}
