@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import os
+import shutil
 import stat
 import zipfile
 from pathlib import Path
@@ -161,6 +162,31 @@ def test_the_mac_profile_trains_on_the_mac_gpu(samples: Path, tmp_path: Path) ->
 def test_no_samples_is_a_clear_refusal(tmp_path: Path) -> None:
     with pytest.raises(NoSamplesError, match="samples-build"):
         run_smoke(profile(), tmp_path, tmp_path / "out")
+
+
+def rows_per_split(samples: Path, tmp_path: Path, splits: list[str]) -> Path:
+    """The fixture's clip listed once for each split given. Every row points at the same files."""
+    copy = tmp_path / "split-samples"
+    shutil.copytree(samples, copy)
+    manifest = json.loads((copy / "manifest.json").read_text())
+    template = manifest["samples"][0]
+    manifest["samples"] = [
+        template | {"clip_id": f"{split}-clip", "split": split} for split in splits
+    ]
+    (copy / "manifest.json").write_text(json.dumps(manifest))
+    return copy
+
+
+def test_a_smoke_run_never_trains_on_evaluation_clips(samples: Path, tmp_path: Path) -> None:
+    built = rows_per_split(samples, tmp_path, ["train", "val", "test"])
+    manifest = run_smoke(profile(), built, tmp_path / "run")
+    assert manifest["samples"] == ["train-clip"]
+
+
+def test_a_build_with_no_training_clips_is_a_clear_refusal(samples: Path, tmp_path: Path) -> None:
+    built = rows_per_split(samples, tmp_path, ["val", "test"])
+    with pytest.raises(NoSamplesError, match="train split"):
+        run_smoke(profile(), built, tmp_path / "run")
 
 
 def test_a_real_profile_isnt_a_smoke_run(samples: Path, tmp_path: Path) -> None:

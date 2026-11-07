@@ -19,12 +19,12 @@ The transformer alone is 34.55 GB, against 16 GB of memory, and the trainer's ow
 ## Commands
 
 ```bash
-make samples-build DATASET=tiktok-dance LIMIT=8    # Real samples with real pose estimation
+make samples-build DATASET=tiktok-dance CLIPS="00001 00029 00058"   # Real samples, one clip from each split
 make train-smoke PROFILE=cpu-smoke                 # A real loop on tiny weights
 make train-smoke PROFILE=mac-mps
 ```
 
-Expected output is a `run_manifest.json` under `.data/runs/training/`, labelled `smoke`, with finite losses, `verification.layers_attached` above 0, and `verification.output_changed` true. That last check loads the exported file into a fresh pipeline through the serving loader. Run the same command again with `--out` set to the same folder, and it resumes from the newest checkpoint.
+Expected output is a `run_manifest.json` under `.data/runs/training/`, labelled `smoke`, with finite losses, `verification.layers_attached` above 0, and `verification.output_changed` true. Both the smoke loop and the real run train on the train split only, so validation and test clips stay unseen for evaluation. That last check loads the exported file into a fresh pipeline through the serving loader. Run the same command again with `--out` set to the same folder, and it resumes from the newest checkpoint.
 
 ### The real run
 

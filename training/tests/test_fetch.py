@@ -96,3 +96,39 @@ def test_manifest_records_real_hashes_and_detects_tampering(tmp_path: Path) -> N
 
     (root / "a.bin").write_bytes(b"changed")
     assert verify_manifest(root, manifest) == ["a.bin"]
+
+
+def test_the_manifest_ignores_hidden_tool_folders(tmp_path: Path) -> None:
+    root = tmp_path / "download"
+    (root / ".tool-state").mkdir(parents=True)
+    (root / "a.zip").write_bytes(b"archive")
+    (root / ".tool-state" / "cache.json").write_text("{}")
+    manifest = tmp_path / "MANIFEST.json"
+
+    write_manifest(root, manifest, dataset_id="demo", version="1", retrieval_date="2026-11-07")
+
+    assert list(json.loads(manifest.read_text())["files"]) == ["a.zip"]
+
+
+def test_validation_checks_the_download_not_what_was_built_from_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from motionmirror_training import cli
+
+    root = tmp_path / "tiktok-dance"
+    (root / "download").mkdir(parents=True)
+    (root / "built").mkdir()
+    (root / "download" / "tiktok-dance.zip").write_bytes(b"archive")
+    (root / "built" / "manifest.json").write_text("first build")
+    monkeypatch.setenv("MM_DATASET_ROOT", str(tmp_path))
+
+    assert cli.datasets_validate("tiktok-dance") == 0
+    recorded = json.loads((root / "MANIFEST.json").read_text())["files"]
+    assert list(recorded) == ["tiktok-dance.zip"]
+
+    (root / "built" / "manifest.json").write_text("a rebuild")
+    assert cli.datasets_validate("tiktok-dance") == 0
+
+    (root / "download" / "tiktok-dance.zip").write_bytes(b"corrupted")
+    assert cli.datasets_validate("tiktok-dance") == 1
+    assert "tiktok-dance.zip" in capsys.readouterr().err

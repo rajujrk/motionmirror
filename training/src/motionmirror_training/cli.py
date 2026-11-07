@@ -90,14 +90,16 @@ def datasets_validate(dataset_id: str) -> int:
     entry = load_registry(REGISTRY_PATH).get(dataset_id)
     assert_fetch_allowed(entry)
     root = dataset_root() / dataset_id
+    # Only what was downloaded. Samples built from it sit beside it and change with every build.
+    downloaded = root / "download"
     manifest = root / "MANIFEST.json"
     if not manifest.exists():
-        if not any(root.rglob("*")):
-            print(f"{dataset_id}: nothing downloaded under {root}", file=sys.stderr)
+        if not downloaded.is_dir() or not any(downloaded.rglob("*")):
+            print(f"{dataset_id}: nothing downloaded under {downloaded}", file=sys.stderr)
             return 1
-        write_manifest(root, manifest, dataset_id, entry.version, dt.date.today().isoformat())
+        write_manifest(downloaded, manifest, dataset_id, entry.version, dt.date.today().isoformat())
         print(f"wrote {manifest}")
-    failures = verify_manifest(root, manifest)
+    failures = verify_manifest(downloaded, manifest)
     for name in failures:
         print(f"checksum mismatch or missing: {name}", file=sys.stderr)
     print(f"{dataset_id}: {'FAILED' if failures else 'OK'}")

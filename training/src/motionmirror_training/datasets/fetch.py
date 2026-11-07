@@ -100,7 +100,14 @@ def sha256_file(path: Path) -> str:
 
 
 def _dataset_files(root: Path, manifest: Path) -> list[Path]:
-    return sorted(p for p in root.rglob("*") if p.is_file() and p != manifest)
+    """Hidden folders hold tool state, which changes on its own and was never part of the download."""
+    return sorted(
+        p
+        for p in root.rglob("*")
+        if p.is_file()
+        and p != manifest
+        and not any(part.startswith(".") for part in p.relative_to(root).parts)
+    )
 
 
 def write_manifest(

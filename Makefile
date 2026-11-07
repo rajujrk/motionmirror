@@ -182,8 +182,8 @@ adapter-list: ## List registered adapters
 	cd training && uv run mm-train adapter list
 
 .PHONY: samples-build
-samples-build: ## Build training samples with real pose estimation. DATASET=<id> LIMIT=<n>
-	cd training && uv run mm-train samples-build --dataset $(DATASET) $(if $(LIMIT),--limit $(LIMIT))
+samples-build: ## Build training samples with real pose estimation. DATASET=<id> LIMIT=<n> CLIPS="<id> <id>"
+	cd training && uv run mm-train samples-build --dataset $(DATASET) $(if $(LIMIT),--limit $(LIMIT)) $(foreach clip,$(CLIPS),--clip $(clip))
 
 .PHONY: datasets-validate
 datasets-validate: ## Verify a downloaded dataset against its checksums. Needs DATASET=<id>

@@ -15,8 +15,9 @@ A research-only dataset can only produce a labelled research adapter, enforced i
 
 ```bash
 make datasets-fetch DATASET=tiktok-dance      # About 48.6 GB, resumable. Uses ~/.kaggle/kaggle.json
-make datasets-validate DATASET=tiktok-dance   # Checksums the download against its manifest
-make samples-build DATASET=tiktok-dance LIMIT=8
+make datasets-validate DATASET=tiktok-dance   # Checksums download/ only. Samples built beside it don't count
+make samples-build DATASET=tiktok-dance LIMIT=8                      # The first 8 usable clips
+make samples-build DATASET=tiktok-dance CLIPS="00001 00029 00058"    # Named clips, here one from each split
 ```
 
 ## Building samples
@@ -24,7 +25,7 @@ make samples-build DATASET=tiktok-dance LIMIT=8
 The archive is untrusted input. Paths are checked before use, frames must really be PNGs within a pixel limit, and nothing is written under a name the archive chose.
 
 1. **Filter.** Every rejection is recorded with its reason: `no_mask`, `mask_count_mismatch`, `too_short`, `too_low_resolution`, `subject_missing_or_too_small`, `subject_fills_the_frame`, `near_duplicate_of_another_source`. 284 of the 340 clips are long enough.
-2. **Split.** By a hash of the raw compilation, so a whole group lands together, and a leak fails the build. The dataset has no person ids, so the same person in two compilations could still leak. That limit is recorded in each dataset card.
+2. **Split.** By a hash of the raw compilation, so a whole group lands together, and a leak fails the build. The dataset has no person ids, so the same person in two compilations could still leak. That limit is recorded in each dataset card. Across the whole dataset, 19 groups (236 clips) land in train, 3 (43) in validation and 4 (61) in test. A small `LIMIT` takes the first clips, which share one group, so it builds no evaluation set and `eval-adapter` refuses it. Use `CLIPS` to cover every split. Training reads the train split only.
 3. **De-duplicate.** A difference hash of each clip's first frame. Nothing in the full dataset is within 6 bits across sources, so this drops nothing today.
 4. **Preprocess.** The same pipeline serving uses, with the dataset's masks in place of SAM 2 and real ViTPose.
 5. **Lay out for the trainer.** It takes its reference from frame 0 and pairs video frame `j` with control `j-4`. So `video.mp4` is the reference followed by 80 target frames, and control `k` shows target frame `k+3`. `test_samples.py` checks this exactly, using frames that carry their own index. The pairing is inferred from the trainer's code and needs checking on a real run.
