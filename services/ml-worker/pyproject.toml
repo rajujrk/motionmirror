@@ -1,0 +1,65 @@
+[project]
+name = "motionmirror"
+version = "0.1.0"
+description = "MotionMirror Python worker: media handling, preprocessing and model inference."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "aio-pika>=9.5,<10",
+    "httpx>=0.28,<1",
+    "jsonschema>=4.23,<5",
+    "numpy>=2.1,<3",
+    "pillow>=11,<13",
+    "pydantic>=2.9,<3",
+    "pydantic-settings>=2.6,<3",
+    "pyyaml>=6,<7",
+]
+
+[project.optional-dependencies]
+wan = [
+    "accelerate>=1.2,<2",
+    "diffusers==0.42.1",
+    "ftfy>=6.3,<7",
+    "gguf>=0.10,<1",
+    "peft>=0.14,<1",
+    "safetensors>=0.5,<1",
+    "sentencepiece>=0.2,<1",
+    "torch>=2.6,<3",
+    "transformers>=4.48,<6",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.14,<2",
+    "pytest>=8.3,<10",
+    "pytest-asyncio>=0.25,<2",
+    "ruff>=0.9,<1",
+]
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/motionmirror"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "requires_wan: needs the wan extra (torch, diffusers); no real weights",
+    "requires_mps: needs an Apple Silicon GPU",
+    "requires_weights: needs downloaded real model weights",
+    "requires_gpu: needs a CUDA GPU",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
