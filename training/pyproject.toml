@@ -11,6 +11,17 @@ dependencies = [
     "safetensors>=0.5,<1",
 ]
 
+[project.optional-dependencies]
+# What the pinned trainer needs. Its own pyproject leaves versions open, so this project's lockfile pins them.
+gpu = [
+    "accelerate>=1.2,<2",
+    "deepspeed>=0.16,<1; sys_platform == 'linux'",
+    "einops>=0.8,<1",
+    "imageio[ffmpeg]>=2.36,<3",
+    "modelscope>=1.20,<2",
+    "pandas>=2.2,<3",
+]
+
 [project.scripts]
 mm-train = "motionmirror_training.cli:main"
 

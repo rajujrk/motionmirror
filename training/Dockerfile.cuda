@@ -1,0 +1,25 @@
+# The real training image, for linux/amd64. Built from the repository root. Not yet run: pending GPU validation.
+# It holds the pinned trainer and no weights or data. Its .pth files are pickles the trainer needs, which is why this
+# image is separate from serving: nothing here reaches a worker except the exported safetensors.
+FROM python:3.12-slim-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg git && rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-dir uv==0.13.7
+WORKDIR /opt
+RUN git init DiffSynth-Studio && cd DiffSynth-Studio \
+    && git remote add origin https://github.com/modelscope/DiffSynth-Studio \
+    && git fetch --depth 1 origin 08fdc0da8f41426885d9432e9007e6e460a4c30d \
+    && git checkout FETCH_HEAD
+WORKDIR /app/training
+COPY training/pyproject.toml training/uv.lock ./
+COPY training/src ./src
+COPY services/ml-worker /app/services/ml-worker
+COPY configs /app/configs
+RUN uv sync --frozen --no-dev --no-editable --extra gpu
+RUN uv pip install --python .venv/bin/python --no-deps /opt/DiffSynth-Studio
+ENV PATH=/app/training/.venv/bin:$PATH \
+    MM_DIFFSYNTH_DIR=/opt/DiffSynth-Studio \
+    MM_MODEL_CACHE=/models \
+    MM_DATASET_ROOT=/datasets \
+    MM_PRESETS_DIR=/app/configs/presets \
+    HF_HUB_OFFLINE=1
+ENTRYPOINT ["mm-train"]

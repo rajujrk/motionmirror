@@ -1,0 +1,12 @@
+# The same smoke loop on Apple Silicon. Real 14B training doesn't fit: the transformer alone is larger than this Mac's
+# memory, and the trainer's own script says one 80 GB GPU can't train it. See docs/TRAINING.md.
+schema_version: 1
+id: mac-mps
+kind: smoke
+device: mps
+can_satisfy_training_gate: false
+learning_rate: 1.0e-3
+steps: 8
+checkpoint_every: 4
+video: {height: 32, width: 32, num_frames: 9}
+lora: {rank: 4, target_modules: [q, k, v, o, ffn.0, ffn.2]}

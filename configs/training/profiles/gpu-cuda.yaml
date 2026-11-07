@@ -1,0 +1,28 @@
+# The real run. Values come from the trainer's own script at the pinned commit, except the size, which matches our
+# samples. Pending GPU validation: this has never been run.
+schema_version: 1
+id: gpu-cuda
+kind: real
+device: cuda
+can_satisfy_training_gate: true
+learning_rate: 1.0e-4
+epochs: 5
+dataset_repeat: 100
+checkpoint_every: 500
+video: {height: 768, width: 432, num_frames: 81}
+lora: {rank: 32, target_modules: [q, k, v, o, ffn.0, ffn.2]}
+base_model:
+  # What the trainer loads, and the Diffusers conversion that serving loads. Adapters are registered against the latter.
+  training_id: Wan-AI/Wan2.2-Animate-14B
+  training_revision: cb93a225fbaf1ca100f54e79da8f994995b689b3
+  serving_id: Wan-AI/Wan2.2-Animate-14B-Diffusers
+  serving_revision: 6f4df10861c758af86ac3c979aacc1bf5c03eff0
+trainer:
+  repo: https://github.com/modelscope/DiffSynth-Studio
+  commit: 08fdc0da8f41426885d9432e9007e6e460a4c30d
+  license: Apache-2.0
+  # Verbatim from examples/wanvideo/model_training/lora/Wan2.2-Animate-14B.sh at that commit.
+  authors_note: "# 1*80G GPU cannot train Wan2.2-Animate-14B LoRA. # We tested on 8*80G GPUs"
+  tested_gpu_count: 8
+  tested_gpu_memory_gb: 80
+disk_needed_gb: 80 # 51 GB of model files from the hub listing, plus room for samples and checkpoints

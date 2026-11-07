@@ -19,6 +19,7 @@ datasets:
       Creative Commons Attribution-NonCommercial 4.0 International License." Clips show real people who have not individually
       consented to this use. Copying this data to a third-party GPU provider may count as a transfer; get the authors' permission first.
     commercial_use_ok: false
+    transfer_requires_permission: true
     attribution: "Jafarian and Park, Learning High Fidelity Depths of Dressed Humans by Watching Social Media Dance Videos, CVPR 2021"
     consent_notes: Real people's likeness. Research adapters only, never promoted to production.
     size_bytes: 48622644842

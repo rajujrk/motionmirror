@@ -38,8 +38,16 @@ artifacts:
     local_dir: gguf
     include: ["Wan2.2-Animate-14B-Q2_K.gguf"]
     license: Apache-2.0, as a conversion of the Wan model
+  wan-animate-14b-training:
+    repo: Wan-AI/Wan2.2-Animate-14B
+    revision: cb93a225fbaf1ca100f54e79da8f994995b689b3
+    local_dir: wan-animate-14b-training
+    # Includes pickle .pth files because the trainer needs them. They stay in the training image, never in serving.
+    include: ["config.json", "diffusion_pytorch_model*", "models_t5_umt5-xxl-enc-bf16.pth", "Wan2.1_VAE.pth", "models_clip_open-clip-xlm-roberta-large-vit-huge-14.pth"]
+    license: Apache-2.0
 profiles:
   preprocess: [sam2-small, vitpose]
   preprocess-gpu: [sam2-large, vitpose]
   wan: [wan-animate-14b, sam2-large, vitpose]
   mac-spike: [wan-animate-14b-without-transformer, wan-gguf-q2]
+  training: [wan-animate-14b-training, vitpose, sam2-large]

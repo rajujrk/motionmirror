@@ -123,8 +123,8 @@ def archive(tmp_path_factory: pytest.TempPathFactory) -> Path:
 class FakePose:
     revision = "fake-pose"
 
-    def estimate(self, frames: list[np.ndarray], boxes: list[Any]) -> list[Any]:
-        return [{"box": box} for box in boxes]
+    def estimate(self, frame: np.ndarray, box: tuple[int, int, int, int]) -> dict[str, Any]:
+        return {"box": box}
 
     def face_crop(self, frame: np.ndarray, meta: dict[str, Any]) -> np.ndarray:
         return np.full((512, 512, 3), 90, dtype=np.uint8)

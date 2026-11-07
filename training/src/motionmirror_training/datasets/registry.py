@@ -49,6 +49,7 @@ class DatasetEntry(_Strict):
     license_url: str | None
     license_notes: str
     commercial_use_ok: bool = False
+    transfer_requires_permission: bool = False
     attribution: str
     consent_notes: str
     size_bytes: int | None

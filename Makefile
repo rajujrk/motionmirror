@@ -110,6 +110,46 @@ test-tools: ## Unit tests for repository tooling
 datasets-fetch: ## Download a registered dataset. Needs DATASET=<id>
 	cd training && uv run mm-train datasets-fetch --dataset $(DATASET)
 
+.PHONY: train-smoke
+train-smoke: ## A real loop on tiny weights, or a short pass on a GPU. PROFILE=cpu-smoke|mac-mps|gpu-cuda
+	cd training && uv run mm-train train-smoke --profile $(PROFILE) $(if $(SAMPLES),--samples $(abspath $(SAMPLES)))
+
+.PHONY: train-lora
+train-lora: ## The real run, which costs real money. Refuses without CONFIRM=yes and SECONDS_PER_STEP
+	cd training && uv run mm-train train-lora --profile $(PROFILE) $(if $(SECONDS_PER_STEP),--seconds-per-step $(SECONDS_PER_STEP)) $(if $(filter yes,$(CONFIRM)),--confirm) $(if $(filter yes,$(TRANSFER_PERMISSION)),--transfer-permission-confirmed) $(if $(filter yes,$(BELOW_TESTED)),--accept-below-tested-hardware)
+
+.PHONY: eval-adapter
+eval-adapter: ## Base against adapter on the fixed set. ADAPTER=<run dir>. Needs a CUDA worker for promotion evidence
+	cd training && uv run mm-train eval-adapter --adapter $(abspath $(ADAPTER)) $(if $(filter yes,$(NOT_FOR_PROMOTION)),--not-for-promotion)
+
+.PHONY: eval-approve
+eval-approve: ## Record a person's review. ADAPTER=<run dir> REVIEWER="Name" FAILED="hands feet"
+	cd training && uv run mm-train eval-approve --adapter $(abspath $(ADAPTER)) --reviewer "$(REVIEWER)" $(foreach item,$(FAILED),--failed $(item))
+
+.PHONY: adapter-login
+adapter-login: ## Sign in as an administrator for the adapter commands
+	cd training && uv run mm-train adapter login
+
+.PHONY: adapter-register
+adapter-register: ## Upload and register a trained adapter. ADAPTER=<run dir>
+	cd training && uv run mm-train adapter register --adapter $(abspath $(ADAPTER)) $(if $(EVAL),--eval-manifest $(abspath $(EVAL)))
+
+.PHONY: adapter-stage
+adapter-stage: ## A new preset revision only administrators can see. ADAPTER=<id> PRESET=<id>
+	cd training && uv run mm-train adapter stage --id $(ADAPTER) --preset $(or $(PRESET),standard)
+
+.PHONY: adapter-promote
+adapter-promote: ## Make a staged adapter the default. Research adapters are refused. ADAPTER=<id> PRESET=<id>
+	cd training && uv run mm-train adapter promote --id $(ADAPTER) --preset $(or $(PRESET),standard)
+
+.PHONY: adapter-rollback
+adapter-rollback: ## Return a preset's default to its previous revision. PRESET=<id>
+	cd training && uv run mm-train adapter rollback --preset $(PRESET)
+
+.PHONY: adapter-list
+adapter-list: ## List registered adapters
+	cd training && uv run mm-train adapter list
+
 .PHONY: samples-build
 samples-build: ## Build training samples with real pose estimation. DATASET=<id> LIMIT=<n>
 	cd training && uv run mm-train samples-build --dataset $(DATASET) $(if $(LIMIT),--limit $(LIMIT))
