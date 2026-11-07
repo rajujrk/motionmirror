@@ -61,6 +61,12 @@ The reconciler runs under a PostgreSQL advisory lock, so one replica acts at a t
 
 AMQP heartbeats don't extend delivery deadlines, so the `long-gpu-attempts` policy sets `consumer-timeout` to `MM_RABBIT_CONSUMER_TIMEOUT_MS`, 6 hours by default. It must exceed `MM_MAX_ATTEMPT_DURATION` (4 hours) plus a 30-minute cleanup margin. The API refuses to start otherwise, and `make doctor` checks the live broker.
 
+**Verified on the pinned RabbitMQ 4.3 image**, in `services/ml-worker/tests/integration/test_broker_deadline.py`:
+
+- [Delivery acknowledgement timeouts are only supported by quorum queues](https://www.rabbitmq.com/docs/consumers) from 4.3, which is why every queue here is a quorum queue.
+- A timed-out AMQP 0-9-1 consumer is **cancelled and its message returned**. The channel stays open.
+- `aiormq` drops the consumer without any callback, so a worker could sit idle while looking healthy. A watchdog in `consume()` checks every 10 seconds and subscribes again, and a late ack that fails is logged rather than fatal.
+
 ## What's tested
 
 `LeaseIT` and `OutboxIT`, on real services: transaction rollback, publish-before-mark crash, broker outage, unroutable message, poison message to DLQ, permissions, concurrent acquire, stale workers, idempotent completion, output prefix checks, cancel races and retry limits.
