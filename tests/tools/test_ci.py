@@ -53,7 +53,8 @@ def test_commands_in_workflows_are_real_make_targets() -> None:
 def test_every_make_target_named_in_the_docs_exists() -> None:
     """The brief asks for real commands. A renamed target would otherwise leave instructions that fail."""
     targets = set(re.findall(r"^([a-z0-9-]+):", (ROOT / "Makefile").read_text(), flags=re.M))
-    documents = [ROOT / "README.md", *(ROOT / "docs").rglob("*.md")]
+    # CLAUDE.md is what an agent on a fresh checkout, such as the first GPU machine, follows word for word.
+    documents = [ROOT / "README.md", ROOT / "CLAUDE.md", *(ROOT / "docs").rglob("*.md")]
     for document in documents:
         if {"product", "superpowers"} & set(document.parts):
             continue

@@ -1,10 +1,10 @@
 # Implementation status
 
-Updated 2026-11-07. Resume from this file and `docs/superpowers/plans/2026-11-06-motionmirror-master-plan.md`.
+Updated 2026-11-08. Resume from this file and `docs/superpowers/plans/2026-11-06-motionmirror-master-plan.md`. Claude Code also reads `CLAUDE.md`, which carries the owner's decisions and the GPU steps.
 Tiers: **P0** core flow, **P1** hardening gate, **P2** deferred.
 
 **GPU validation performed: none.** Real generation, GPU benchmarks, real LoRA training and the MVP and training gates are `pending GPU validation`.
-**Ubuntu, Windows/WSL2 and CI have not been run.** Everything below was run on one Apple M1 Pro with 16 GB.
+**Ubuntu and Windows/WSL2 have not been run.** Everything below was run on one Apple M1 Pro with 16 GB. The repository was pushed to `https://github.com/rajujrk/motionmirror` on 2026-11-08, which started the first CI run.
 
 ## Where it stands
 
@@ -15,7 +15,7 @@ The whole application runs end to end on this Mac. A user signs in, uploads a cl
 | Local foundation (Phase 1 exit) | **Met on this Mac** | `journey.spec.ts`, `recovery.spec.ts`, the `*IT` suites |
 | MVP gate (brief §16) | `pending GPU validation`. Every item a CPU can test is evidenced | Below |
 | Training gate (brief §16) | `pending GPU validation`. Data, licence gate, smoke runs and the adapter API are evidenced | Below |
-| Ubuntu, Windows/WSL2, CI | Written, not run | `docs/LOCAL_DEVELOPMENT.md`, `.github/workflows/` |
+| Ubuntu, Windows/WSL2, CI | Written. CI's first run started 2026-11-08, results not yet recorded | `docs/LOCAL_DEVELOPMENT.md`, `.github/workflows/` |
 
 ## Tasks
 
@@ -93,7 +93,6 @@ The first browser run after restarting failed 5 tests because a stale ClamAV con
 | No NVIDIA GPU available | Real generation, benchmarks, real LoRA, the MVP and training gates | A CUDA machine |
 | DiffSynth says one 80 GB GPU can't train this LoRA, and its authors tested on 8 | Real training cost | The owner's hardware and budget decision |
 | TikTok licence: "will not be transferred to outside parties without the authors' permission" | Copying the data to a rented GPU | Ask the authors first |
-| No git remote, `gh` absent, GitHub connector failed | Running CI on Ubuntu, macOS and Windows | A pushed repository |
 
 ## Before production
 
@@ -103,7 +102,7 @@ The first browser run after restarting failed 5 tests because a stale ClamAV con
 
 ## Next steps
 
-1. On a CUDA machine: `make up-gpu`, `make smoke-gpu`, `make benchmark-gpu`, then the 30-second acceptance run.
-2. Push the repository so CI runs on Ubuntu, macOS and Windows.
+1. On a CUDA machine, follow the steps in `CLAUDE.md`: `make doctor`, `make models-download`, `make up-gpu`, `make smoke-gpu`, `make benchmark-gpu`, then the 30-second acceptance run. Record what was measured.
+2. Record the first CI run's results on Ubuntu, macOS and Windows, and fix what fails.
 3. Ask the TikTok dataset's authors about transfer before any rented-GPU training. Then decide hardware and run `make train-lora`.
 4. Close the P1 items above: AsyncAPI validation, an OpenAPI drift check, a dedicated reconciler test.
