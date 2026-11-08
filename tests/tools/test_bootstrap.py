@@ -21,24 +21,30 @@ SECRETS = {
 }
 
 
+def assert_owner_only(path: Path) -> None:
+    """Native Windows has no POSIX modes. The stack runs there inside WSL2, where they apply and this is checked."""
+    if sys.platform != "win32":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
 def test_env_file_is_created_owner_only(tmp_path: Path) -> None:
     target = tmp_path / ".env"
     bootstrap.write_private(target, "SECRET=value\n")
-    assert stat.S_IMODE(target.stat().st_mode) == 0o600
-    assert target.read_text() == "SECRET=value\n"
+    assert_owner_only(target)
+    assert target.read_text(encoding="utf-8") == "SECRET=value\n"
 
 
 def test_write_private_tightens_an_existing_file(tmp_path: Path) -> None:
     target = tmp_path / ".env"
-    target.write_text("old")
+    target.write_text("old", encoding="utf-8")
     target.chmod(0o644)
     bootstrap.write_private(target, "new")
-    assert stat.S_IMODE(target.stat().st_mode) == 0o600
-    assert target.read_text() == "new"
+    assert_owner_only(target)
+    assert target.read_text(encoding="utf-8") == "new"
 
 
 def test_rabbit_definitions_hold_hashes_not_plaintext() -> None:
-    template = (ROOT / "configs/rabbitmq/definitions.template.json").read_text()
+    template = (ROOT / "configs/rabbitmq/definitions.template.json").read_text(encoding="utf-8")
     rendered = bootstrap.render_template(template, SECRETS)
     assert not any(value in rendered for key, value in SECRETS.items() if "PASSWORD" in key)
     assert json.loads(rendered)["users"][0]["hashing_algorithm"] == "rabbit_password_hashing_sha256"

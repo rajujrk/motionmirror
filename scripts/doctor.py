@@ -95,7 +95,7 @@ def load_env() -> dict[str, str]:
     path = ROOT / ".env"
     if not path.exists():
         return {}
-    pairs = (line.split("=", 1) for line in path.read_text().splitlines() if "=" in line and line[0] != "#")
+    pairs = (line.split("=", 1) for line in path.read_text(encoding="utf-8").splitlines() if "=" in line and line[0] != "#")
     return {key: value for key, value in pairs}
 
 

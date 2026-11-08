@@ -6,7 +6,7 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-WORKFLOWS = {path.name: path.read_text() for path in (ROOT / ".github" / "workflows").glob("*.yml")}
+WORKFLOWS = {path.name: path.read_text(encoding="utf-8") for path in (ROOT / ".github" / "workflows").glob("*.yml")}
 
 
 def test_every_action_is_pinned_to_a_full_commit_with_its_version_noted() -> None:
@@ -43,7 +43,7 @@ def test_routine_ci_never_touches_a_gpu_or_a_training_run() -> None:
 
 
 def test_commands_in_workflows_are_real_make_targets() -> None:
-    makefile = (ROOT / "Makefile").read_text()
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     targets = set(re.findall(r"^([a-z0-9-]+):", makefile, flags=re.M))
     for name, text in WORKFLOWS.items():
         for target in re.findall(r"\bmake ([a-z0-9-]+)", text):
@@ -52,13 +52,13 @@ def test_commands_in_workflows_are_real_make_targets() -> None:
 
 def test_every_make_target_named_in_the_docs_exists() -> None:
     """The brief asks for real commands. A renamed target would otherwise leave instructions that fail."""
-    targets = set(re.findall(r"^([a-z0-9-]+):", (ROOT / "Makefile").read_text(), flags=re.M))
+    targets = set(re.findall(r"^([a-z0-9-]+):", (ROOT / "Makefile").read_text(encoding="utf-8"), flags=re.M))
     # CLAUDE.md is what an agent on a fresh checkout, such as the first GPU machine, follows word for word.
     documents = [ROOT / "README.md", ROOT / "CLAUDE.md", *(ROOT / "docs").rglob("*.md")]
     for document in documents:
         if {"product", "superpowers"} & set(document.parts):
             continue
-        for target in re.findall(r"\bmake ([a-z][a-z0-9-]+)", document.read_text()):
+        for target in re.findall(r"\bmake ([a-z][a-z0-9-]+)", document.read_text(encoding="utf-8")):
             assert target in targets, f"{document.name} names make {target}, which doesn't exist"
 
 

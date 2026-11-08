@@ -52,12 +52,12 @@ def test_workers_use_addresses_a_native_process_can_reach() -> None:
 
 def test_the_env_file_parser_keeps_values_with_equals_signs(tmp_path: Path) -> None:
     path = tmp_path / ".env"
-    path.write_text("# comment\n\nA=one\nB=two=three\n")
+    path.write_text("# comment\n\nA=one\nB=two=three\n", encoding="utf-8")
     assert worker_native.read_env_file(path) == {"A": "one", "B": "two=three"}
 
 
 def test_the_runpod_template_keeps_weights_on_the_network_volume_and_scratch_on_the_container_disk() -> None:
-    template = (ROOT / "infra" / "runpod" / "worker.env.template").read_text()
+    template = (ROOT / "infra" / "runpod" / "worker.env.template").read_text(encoding="utf-8")
     assert "MM_MODEL_CACHE=/workspace/models" in template
     assert "MM_SCRATCH_DIR=/tmp/" in template
     assert "amqps://" in template, "a remote worker must use TLS to the broker"

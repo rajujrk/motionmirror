@@ -30,14 +30,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, default=ROOT / ".data" / "runtime" / "realm-production.json")
     args = parser.parse_args()
-    realm = production_realm(json.loads(TEMPLATE.read_text()))
+    realm = production_realm(json.loads(TEMPLATE.read_text(encoding="utf-8")))
     rendered = json.dumps(realm, indent=2)
     leftover = [name for name in DEV_PLACEHOLDERS if name in rendered]
     if leftover:
         print(f"Development values are still in the realm: {leftover}", file=sys.stderr)
         return 1
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text(rendered + "\n")
+    args.out.write_text(rendered + "\n", encoding="utf-8")
     print(args.out)
     return 0
 

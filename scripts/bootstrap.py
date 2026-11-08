@@ -23,7 +23,7 @@ DISK_RENDERED = [("configs/rabbitmq/definitions.template.json", "rabbitmq/defini
 def write_private(path: Path, content: str) -> None:
     """Write a file only its owner can read, with no window at wider permissions."""
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(descriptor, "w") as stream:
+    with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
         stream.write(content)
     path.chmod(0o600)
 
@@ -82,11 +82,11 @@ def render_template(template: str, values: dict[str, str]) -> str:
 def main() -> None:
     env_path = ROOT / ".env"
     if not env_path.exists():
-        write_private(env_path, render_env((ROOT / ".env.example").read_text(), host_platform()))
+        write_private(env_path, render_env((ROOT / ".env.example").read_text(encoding="utf-8"), host_platform()))
         print("created .env with generated secrets")
     else:
-        existing = env_path.read_text()
-        added = missing_entries((ROOT / ".env.example").read_text(), existing, host_platform())
+        existing = env_path.read_text(encoding="utf-8")
+        added = missing_entries((ROOT / ".env.example").read_text(encoding="utf-8"), existing, host_platform())
         if added:
             # Through write_private, so appending can't loosen the file's permissions.
             separator = "" if existing.endswith("\n") else "\n"
@@ -95,12 +95,12 @@ def main() -> None:
             print(f".env already exists, added new settings: {', '.join(names)}")
         else:
             print(".env already exists, keeping it")
-    values = parse_env(env_path.read_text())
+    values = parse_env(env_path.read_text(encoding="utf-8"))
 
     for source, name in DISK_RENDERED:
         target = RUNTIME / name
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(render_template((ROOT / source).read_text(), values))
+        target.write_text(render_template((ROOT / source).read_text(encoding="utf-8"), values))
     shutil.copy(ROOT / "configs/rabbitmq/rabbitmq.conf", RUNTIME / "rabbitmq" / "rabbitmq.conf")
     print(f"rendered local service configuration under {RUNTIME.relative_to(ROOT)}")
     print("no models or datasets were downloaded")

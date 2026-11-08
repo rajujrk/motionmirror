@@ -53,9 +53,9 @@ def main() -> int:
     parser.add_argument("--env-file", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args()
-    values = bootstrap.parse_env(args.env_file.read_text())
+    values = bootstrap.parse_env(args.env_file.read_text(encoding="utf-8"))
     try:
-        rendered = render(TEMPLATE.read_text(), values)
+        rendered = render(TEMPLATE.read_text(encoding="utf-8"), values)
     except KeyError as missing:
         print(f"{args.env_file} doesn't set {missing}", file=sys.stderr)
         return 2

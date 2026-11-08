@@ -22,8 +22,14 @@ VALUES = {
 }
 
 
+def assert_owner_only(path: Path) -> None:
+    """Native Windows has no POSIX modes. The stack runs there inside WSL2, where they apply and this is checked."""
+    if sys.platform != "win32":
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
 def rendered() -> dict:
-    return render_definitions.render(render_definitions.TEMPLATE.read_text(), VALUES)
+    return render_definitions.render(render_definitions.TEMPLATE.read_text(encoding="utf-8"), VALUES)
 
 
 def test_production_has_no_mock_queues_or_accounts() -> None:
@@ -66,7 +72,7 @@ def test_long_gpu_jobs_get_their_timeout_as_a_policy() -> None:
 
 def test_a_missing_password_is_a_clear_refusal(tmp_path: Path, capsys, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     env = tmp_path / "production.env"
-    env.write_text("MM_RABBIT_CONSUMER_TIMEOUT_MS=1\n")
+    env.write_text("MM_RABBIT_CONSUMER_TIMEOUT_MS=1\n", encoding="utf-8")
     monkeypatch.setattr(sys, "argv", ["x", "--env-file", str(env), "--out", str(tmp_path / "out.json")])
     assert render_definitions.main() == 2
     assert "doesn't set" in capsys.readouterr().err
@@ -75,8 +81,8 @@ def test_a_missing_password_is_a_clear_refusal(tmp_path: Path, capsys, monkeypat
 
 def test_the_output_file_is_private(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     env = tmp_path / "production.env"
-    env.write_text("".join(f"{key}={value}\n" for key, value in VALUES.items()))
+    env.write_text("".join(f"{key}={value}\n" for key, value in VALUES.items()), encoding="utf-8")
     out = tmp_path / "out.json"
     monkeypatch.setattr(sys, "argv", ["x", "--env-file", str(env), "--out", str(out)])
     assert render_definitions.main() == 0
-    assert stat.S_IMODE(out.stat().st_mode) == 0o600
+    assert_owner_only(out)

@@ -11,9 +11,9 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-PROD = yaml.safe_load((ROOT / "infra" / "compose" / "compose.prod.yaml").read_text())
+PROD = yaml.safe_load((ROOT / "infra" / "compose" / "compose.prod.yaml").read_text(encoding="utf-8"))
 SERVICES = PROD["services"]
-APPLICATION = (ROOT / "apps" / "api" / "src" / "main" / "resources" / "application.yaml").read_text()
+APPLICATION = (ROOT / "apps" / "api" / "src" / "main" / "resources" / "application.yaml").read_text(encoding="utf-8")
 
 spec = importlib.util.spec_from_file_location("render_realm", ROOT / "scripts" / "render_realm.py")
 assert spec and spec.loader
@@ -69,13 +69,13 @@ def test_images_are_named_by_digest_or_required_from_the_release() -> None:
 
 
 def test_no_development_values_reach_production() -> None:
-    text = (ROOT / "infra" / "compose" / "compose.prod.yaml").read_text()
+    text = (ROOT / "infra" / "compose" / "compose.prod.yaml").read_text(encoding="utf-8")
     assert "MM_DEV_" not in text
     assert "start-dev" not in text
 
 
 def caddy_blocks() -> dict[str, str]:
-    text = (ROOT / "infra" / "proxy" / "Caddyfile.prod").read_text()
+    text = (ROOT / "infra" / "proxy" / "Caddyfile.prod").read_text(encoding="utf-8")
     return dict(re.findall(r"\{\$(MM_\w+)\} \{\n(.*?)\n\}", text, flags=re.S))
 
 
@@ -93,7 +93,7 @@ def test_the_worker_host_serves_only_the_worker_api_and_token_endpoint() -> None
 
 
 def test_the_production_realm_has_no_test_accounts_or_mock_worker() -> None:
-    template = json.loads((ROOT / "infra" / "identity" / "realm-template.json").read_text())
+    template = json.loads((ROOT / "infra" / "identity" / "realm-template.json").read_text(encoding="utf-8"))
     realm = render_realm.production_realm(template)
     assert "users" not in realm
     assert {client["clientId"] for client in realm["clients"]} == {
@@ -109,7 +109,7 @@ def test_the_production_realm_has_no_test_accounts_or_mock_worker() -> None:
 
 def test_rendering_refuses_to_write_development_values(tmp_path: Path, monkeypatch) -> None:  # type: ignore[no-untyped-def]
     bad = tmp_path / "template.json"
-    bad.write_text(json.dumps({"clients": [], "smtpServer": {"password": "${MM_DEV_USER_PASSWORD}"}}))
+    bad.write_text(json.dumps({"clients": [], "smtpServer": {"password": "${MM_DEV_USER_PASSWORD}"}}), encoding="utf-8")
     monkeypatch.setattr(render_realm, "TEMPLATE", bad)
     monkeypatch.setattr(sys, "argv", ["render_realm", "--out", str(tmp_path / "out.json")])
     assert render_realm.main() == 1
@@ -118,21 +118,21 @@ def test_rendering_refuses_to_write_development_values(tmp_path: Path, monkeypat
 
 def test_the_dead_letter_alert_matches_the_real_queue_names() -> None:
     """An alert on a name that doesn't exist looks like monitoring and never fires."""
-    alerts = yaml.safe_load((ROOT / "infra" / "observability" / "prometheus" / "alerts.yml").read_text())
+    alerts = yaml.safe_load((ROOT / "infra" / "observability" / "prometheus" / "alerts.yml").read_text(encoding="utf-8"))
     rule = next(rule for group in alerts["groups"] for rule in group["rules"] if rule["alert"] == "DeadLetterQueueNotEmpty")
     pattern = re.search(r'queue=~"(.+?)"', rule["expr"]).group(1).replace("\\\\", "\\")  # type: ignore[union-attr]
-    definitions = re.sub(r"\$\{\w+\}", "0", (ROOT / "configs" / "rabbitmq" / "definitions.template.json").read_text())
+    definitions = re.sub(r"\$\{\w+\}", "0", (ROOT / "configs" / "rabbitmq" / "definitions.template.json").read_text(encoding="utf-8"))
     queues = [queue["name"] for queue in json.loads(definitions)["queues"]]
     dead = [name for name in queues if re.fullmatch(pattern, name)]
     assert dead, f"{pattern} matches none of {queues}"
 
 
 def test_metrics_named_in_alerts_and_dashboards_are_ones_the_api_publishes() -> None:
-    source = "".join(path.read_text() for path in (ROOT / "apps" / "api" / "src" / "main" / "java").rglob("*.java"))
+    source = "".join(path.read_text(encoding="utf-8") for path in (ROOT / "apps" / "api" / "src" / "main" / "java").rglob("*.java"))
     published = {name.replace(".", "_") for name in re.findall(r'"(mm\.[a-z.]+)"', source)}
     observability = ROOT / "infra" / "observability"
-    used = set(re.findall(r"\bmm_[a-z_]+", (observability / "prometheus" / "alerts.yml").read_text()))
-    used |= set(re.findall(r"\bmm_[a-z_]+", (observability / "grafana" / "dashboards" / "motionmirror.json").read_text()))
+    used = set(re.findall(r"\bmm_[a-z_]+", (observability / "prometheus" / "alerts.yml").read_text(encoding="utf-8")))
+    used |= set(re.findall(r"\bmm_[a-z_]+", (observability / "grafana" / "dashboards" / "motionmirror.json").read_text(encoding="utf-8")))
     for name in used:
         assert name.removesuffix("_total") in published, f"{name} isn't published by anything"
 
@@ -146,7 +146,7 @@ def test_uploads_are_scanned_on_the_cpu_host_in_production() -> None:
 
 def test_the_scanner_accepts_uploads_as_large_as_the_api_allows() -> None:
     """clamd's default stream limit is 25 MB. Past it clamd errors, and every larger upload would stay quarantined."""
-    config = (ROOT / "infra" / "clamav" / "clamd.conf").read_text()
+    config = (ROOT / "infra" / "clamav" / "clamd.conf").read_text(encoding="utf-8")
     limit = int(re.search(r"StreamMaxLength (\d+)M", config).group(1)) * 1024**2  # type: ignore[union-attr]
     default = re.search(r"MM_MAX_SOURCE_BYTES:(\d+)", APPLICATION)
     assert default, "the upload limit moved, so this check needs updating"
@@ -154,7 +154,7 @@ def test_the_scanner_accepts_uploads_as_large_as_the_api_allows() -> None:
 
 
 def test_the_validation_broker_account_can_only_touch_its_own_queue() -> None:
-    definitions = json.loads(re.sub(r"\$\{\w+\}", "0", (ROOT / "configs" / "rabbitmq" / "definitions.template.json").read_text()))
+    definitions = json.loads(re.sub(r"\$\{\w+\}", "0", (ROOT / "configs" / "rabbitmq" / "definitions.template.json").read_text(encoding="utf-8")))
     account = next(item for item in definitions["permissions"] if item["user"] == "mm-consumer-validate")
     assert account["configure"] == "^$"
     assert re.fullmatch(account["read"], "motionmirror.validate.v1")
@@ -169,6 +169,6 @@ def test_tool_state_stays_out_of_images_at_any_depth() -> None:
 
     In .dockerignore a bare name only matches at the top of the build context, so each needs the **/ form.
     """
-    patterns = (ROOT / ".dockerignore").read_text().split()
+    patterns = (ROOT / ".dockerignore").read_text(encoding="utf-8").split()
     for folder in (".claude-flow", ".claude", ".remember"):
         assert f"**/{folder}" in patterns, folder

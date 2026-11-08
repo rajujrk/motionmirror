@@ -20,7 +20,7 @@ TOKEN_PATH = "/auth/realms/motionmirror/protocol/openid-connect/token"
 
 def read_env_file(path: Path) -> dict[str, str]:
     values = {}
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if line and not line.startswith("#") and "=" in line:
             key, _, value = line.partition("=")

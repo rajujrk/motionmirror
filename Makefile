@@ -131,7 +131,7 @@ spike-mac: ## Measure tracking and pose on this Mac. CLIP_DIR holds video.mp4 an
 
 .PHONY: test-tools
 test-tools: ## Unit tests for repository tooling
-	uv run --with pytest --with pyyaml --no-project pytest tests/tools -q
+	PYTHONWARNDEFAULTENCODING=1 uv run --with pytest --with pyyaml --no-project pytest tests/tools -q -W error::EncodingWarning
 
 .PHONY: datasets-fetch
 datasets-fetch: ## Download a registered dataset. Needs DATASET=<id>
