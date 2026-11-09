@@ -1,10 +1,10 @@
 # Implementation status
 
-Updated 2026-11-08. Resume from this file and `docs/superpowers/plans/2026-11-06-motionmirror-master-plan.md`. Claude Code also reads `CLAUDE.md`, which carries the owner's decisions and the GPU steps.
+Updated 2026-11-09. Resume from this file and `docs/superpowers/plans/2026-11-06-motionmirror-master-plan.md`. Claude Code also reads `CLAUDE.md`, which carries the owner's decisions and the GPU steps.
 Tiers: **P0** core flow, **P1** hardening gate, **P2** deferred.
 
 **GPU validation performed: none.** Real generation, GPU benchmarks, real LoRA training and the MVP and training gates are `pending GPU validation`.
-**Ubuntu and Windows/WSL2 have not been run.** Everything below was run on one Apple M1 Pro with 16 GB. The repository was pushed to `https://github.com/rajujrk/motionmirror` on 2026-11-08, which started the first CI run.
+Everything below the CI results was run on one Apple M1 Pro with 16 GB. The repository is at `https://github.com/rajujrk/motionmirror`, and CI passes on Ubuntu, macOS and Windows hosted runners. WSL2 and a real NVIDIA machine haven't been run.
 
 ## Where it stands
 
@@ -15,7 +15,7 @@ The whole application runs end to end on this Mac. A user signs in, uploads a cl
 | Local foundation (Phase 1 exit) | **Met on this Mac** | `journey.spec.ts`, `recovery.spec.ts`, the `*IT` suites |
 | MVP gate (brief §16) | `pending GPU validation`. Every item a CPU can test is evidenced | Below |
 | Training gate (brief §16) | `pending GPU validation`. Data, licence gate, smoke runs and the adapter API are evidenced | Below |
-| Ubuntu, Windows/WSL2, CI | Written. CI's first run started 2026-11-08, results not yet recorded | `docs/LOCAL_DEVELOPMENT.md`, `.github/workflows/` |
+| Ubuntu, Windows/WSL2, CI | **CI passes** on Ubuntu, macOS and Windows hosted runners. WSL2 hasn't been run | Run `42492335453` at `cb8b882`, `.github/workflows/` |
 
 ## Tasks
 
@@ -50,12 +50,26 @@ The whole application runs end to end on this Mac. A user signs in, uploads a cl
 | T4.4 Adapter registry | P0 | Done | `AdapterLifecycleIT`, research adapters can't be promoted | Live device-flow `make adapter-login` not run |
 | T5.1 Deployment artifacts | P1 | Provided, locally validated | Hardened production Compose, startup checks, Runpod runbook | Nothing deployed |
 | T5.2 Observability | P1 | Done | Traces across API and worker, metrics behind a token, alerts loaded, dashboard provisioned | |
-| T5.3 Security and CI | P1 | Done locally | `make scan` exits 0, ClamAV refuses EICAR in the browser | `make test-load` not run (needs a session cookie and CSRF token). CI not run |
+| T5.3 Security and CI | P1 | Done locally | `make scan` exits 0, ClamAV refuses EICAR in the browser | `make test-load` not run (needs a session cookie and CSRF token) |
 | T5.4 Documentation and handoff | P1 | Done | Every document in brief §18, checked by `tests/tools/test_ci.py` | |
 
 ## Test results
 
-Run on 2026-11-07 on this Mac, after the branch review's fixes.
+### CI on GitHub's hosted runners
+
+Run `42492335453` on 2026-11-08, at `cb8b882`: all 10 jobs passed.
+
+| Runner | Jobs |
+| --- | --- |
+| Ubuntu 24.04 | API with its integration tests, worker, training, web, security scans, the browser journey, tooling |
+| macOS 15 | Worker unit and contract tests, tooling |
+| Windows 2025 | Tooling |
+
+Hosted macOS and Windows runners have no Docker, so services run on Linux only. The first run failed only Windows tooling, which read files as cp1252. That's fixed, and a read without an encoding now fails on every OS.
+
+### On this Mac
+
+Run on 2026-11-07, after the branch review's fixes.
 
 | Suite | Command | Result |
 | --- | --- | --- |
@@ -103,6 +117,6 @@ The first browser run after restarting failed 5 tests because a stale ClamAV con
 ## Next steps
 
 1. On a CUDA machine, follow the steps in `CLAUDE.md`: `make doctor`, `make models-download`, `make up-gpu`, `make smoke-gpu`, `make benchmark-gpu`, then the 30-second acceptance run. Record what was measured.
-2. Record the first CI run's results on Ubuntu, macOS and Windows, and fix what fails.
+2. Keep CI green. It runs on every push to `main`.
 3. Ask the TikTok dataset's authors about transfer before any rented-GPU training. Then decide hardware and run `make train-lora`.
 4. Close the P1 items above: AsyncAPI validation, an OpenAPI drift check, a dedicated reconciler test.
